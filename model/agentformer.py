@@ -11,6 +11,8 @@ from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
 
+from pdb import set_trace as st
+
 
 def generate_ar_mask(sz, agent_num, agent_mask):
     assert sz % agent_num == 0
@@ -252,7 +254,8 @@ class FutureEncoder(nn.Module):
             data['q_z_dist'] = Normal(params=q_z_params)
         else:
             data['q_z_dist'] = Categorical(logits=q_z_params, temp=self.z_tau_annealer.val())
-        data['q_z_samp'] = data['q_z_dist'].rsample()
+        # data['q_z_samp'] = data['q_z_dist'].rsample()
+        data['q_z_samp'] = data['q_z_dist'].fixedsample()
 
 
 """ Future Decoder """
@@ -430,7 +433,8 @@ class FutureDecoder(nn.Module):
             if mode in {'train', 'recon'}:
                 z = data['q_z_samp'] if mode == 'train' else data['q_z_dist'].mode()
             elif mode == 'infer':
-                z = data['p_z_dist_infer'].sample()
+                # z = data['p_z_dist_infer'].sample()
+                z = data['p_z_dist_infer'].fixedsample()
             else:
                 raise ValueError('Unknown Mode!')
 
@@ -514,6 +518,26 @@ class AgentFormer(nn.Module):
         self.device = device
         self.to(device)
 
+    def update_data(self, data):
+        # self.set_data(data)
+        # rotate the scene
+        device = self.device
+        self.data['pre_motion'] = data['pre_motion']
+        if self.rand_rot_scene and self.training:
+            if self.discrete_rot:
+                theta = torch.randint(high=24, size=(1,)).to(device) * (np.pi / 12)
+            else:
+                theta = torch.rand(1).to(device) * np.pi * 2
+            for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
+                self.data[f'{key}'], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
+            if in_data['heading'] is not None:
+                self.data['heading'] += theta
+        else:
+            theta = torch.zeros(1).to(device)
+            for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
+                self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   # normalize per scene
+        
+
     def set_data(self, data):
         device = self.device
         if self.training and len(data['pre_motion_3D']) > self.max_train_agent:
@@ -550,7 +574,7 @@ class AgentFormer(nn.Module):
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   # normalize per scene
-
+                
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
         self.data['cur_motion'] = self.data['pre_motion'][[-1]]
@@ -613,6 +637,7 @@ class AgentFormer(nn.Module):
         if mode == 'recon':
             sample_num = 1
             self.future_encoder(self.data)
+        st()
         self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
         return self.data[f'{mode}_dec_motion'], self.data
 

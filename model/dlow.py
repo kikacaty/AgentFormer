@@ -7,6 +7,8 @@ from .common.mlp import MLP
 from .common.dist import *
 from . import model_lib
 
+from pdb import set_trace as st
+
 
 def compute_z_kld(data, cfg):
     loss_unweighted = data['q_z_dist_dlow'].kl(data['p_z_dist_infer']).sum()
@@ -89,6 +91,10 @@ class DLow(nn.Module):
 
     def set_data(self, data):
         self.pred_model[0].set_data(data)
+        self.data = self.pred_model[0].data
+        
+    def update_data(self, data):
+        self.pred_model[0].update_data(data)
         self.data = self.pred_model[0].data
 
     def main(self, mean=False, need_weights=False):

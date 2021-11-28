@@ -18,6 +18,9 @@ class Normal:
     def rsample(self):
         eps = torch.randn_like(self.sigma)
         return self.mu + eps * self.sigma
+    
+    def fixed_sample(self):
+        return self.mu + 0.1 * self.sigma
 
     def sample(self):
         return self.rsample()
