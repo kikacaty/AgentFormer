@@ -1,3 +1,6 @@
 *__pycache__
 results
-exp_output
+arg3_results
+agentformer_models.zip
+datasets/nuscenes_pred/label
+datasets/nuscenes_pred/map_0.1
