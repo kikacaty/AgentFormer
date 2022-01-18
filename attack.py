@@ -54,6 +54,7 @@ def cal_dist(gt_motion):
 
 def get_adv_model_prediction(data, sample_k, alpha = 1e-2, eps = 1, iterations=10):
     model.set_data(data)
+    in_data = data
     if iterations == 0:
         recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
 
@@ -95,7 +96,7 @@ def get_adv_model_prediction(data, sample_k, alpha = 1e-2, eps = 1, iterations=1
         update_pre_motion[1:,...] = torch.cumsum(model.data['pre_vel'],dim=0) 
         update_pre_motion += model.data['pre_motion'][0,...]
         model.data['pre_motion'] = update_pre_motion
-        model.update_data(model.data)
+        model.update_data(model.data, in_data)
 
     return recon_motion_3D, sample_motion_3D
 
@@ -294,7 +295,7 @@ def test_model(generator, save_dir, cfg):
             
             def update(num, adv):
                 num += 1
-                if num <= 8:
+                if num <= cfg.past_frames:
                     for line, line_data in pre_lines:
                         line.set_data(line_data[:num,0],line_data[:num,1])
                     for line, line_data in pred_lines:
@@ -310,12 +311,12 @@ def test_model(generator, save_dir, cfg):
                 else:
                     if adv:
                         for line, line_data in adv_pred_lines:
-                            line.set_data(line_data[:num-8,0],line_data[:num-8,1])
+                            line.set_data(line_data[:num-cfg.past_frames,0],line_data[:num-cfg.past_frames,1])
                     else:
                         for line, line_data in fut_lines:
-                            line.set_data(line_data[:num-8,0],line_data[:num-8,1])
+                            line.set_data(line_data[:num-cfg.past_frames,0],line_data[:num-cfg.past_frames,1])
                     for line, line_data in pred_lines:
-                        line.set_data(line_data[:num-8,0],line_data[:num-8,1])
+                        line.set_data(line_data[:num-cfg.past_frames,0],line_data[:num-cfg.past_frames,1])
             
             
             line_ani = FuncAnimation(fig, update, frames=20, fargs=(False,),
@@ -343,7 +344,7 @@ def test_model(generator, save_dir, cfg):
             'val': 8560,
             'test': 9041
         }
-        assert total_num_pred == scene_num[generator.split]
+        # assert total_num_pred == scene_num[generator.split]
 
 if __name__ == '__main__':
 

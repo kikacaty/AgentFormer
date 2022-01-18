@@ -518,11 +518,13 @@ class AgentFormer(nn.Module):
         self.device = device
         self.to(device)
 
-    def update_data(self, data):
+    def update_data(self, data, in_data):
         # self.set_data(data)
         # rotate the scene
         device = self.device
+
         self.data['pre_motion'] = data['pre_motion']
+        self.data['scene_orig'] = torch.cat([self.data['pre_motion'], self.data['fut_motion']]).view(-1, 2).mean(dim=0)
         if self.rand_rot_scene and self.training:
             if self.discrete_rot:
                 theta = torch.randint(high=24, size=(1,)).to(device) * (np.pi / 12)
@@ -536,6 +538,18 @@ class AgentFormer(nn.Module):
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   # normalize per scene
+
+        # agent maps
+        if self.use_map:
+            scene_map = in_data['scene_map']
+            scene_points = data['pre_motion'][-1,:].cpu().numpy() * in_data['traj_scale']
+            if self.map_global_rot:
+                patch_size = [50, 50, 50, 50]
+                rot = theta.repeat(self.data['agent_num']).cpu().numpy() * (180 / np.pi)
+            else:
+                patch_size = [50, 10, 50, 90]
+                rot = -np.array(in_data['heading'])  * (180 / np.pi)
+            self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
         
 
     def set_data(self, data):
@@ -637,7 +651,6 @@ class AgentFormer(nn.Module):
         if mode == 'recon':
             sample_num = 1
             self.future_encoder(self.data)
-        st()
         self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
         return self.data[f'{mode}_dec_motion'], self.data
 
