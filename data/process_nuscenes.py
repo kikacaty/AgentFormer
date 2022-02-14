@@ -11,6 +11,8 @@ import numpy as np
 import cv2
 import argparse
 
+from pdb import set_trace as st
+
 
 NUM_IN_TRAIN_VAL = 200
 past_frames = 4
@@ -97,6 +99,7 @@ if __name__ == "__main__":
                     sample = nuscenes.get('sample_annotation', sample['next'])
                     cur_data = sample['instance_token'] + '_' + sample['sample_token']
                     scene_data.add(cur_data)
+
 
             all_tokens = np.array([x.split("_") for x in scene_data])
             all_samples = set(np.unique(all_tokens[:, 1]).tolist())

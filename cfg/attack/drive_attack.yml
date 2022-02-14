@@ -1,0 +1,16 @@
+# ================= General attack params =================
+use_vel: True
+use_k: True
+
+iters: [50]
+fix_t: -1
+target_id: -1
+
+eps: 1.0
+step_size: 5.0e-3
+step_size_dds: 1.0e-2
+step_size_dh: 1.0e-3
+collision_reg: 0.0
+motion_reg: 0
+
+debug: False

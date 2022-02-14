@@ -12,6 +12,9 @@ import copy
 import glob, glob2
 from torch import nn
 
+# debug utils
+from pdb import set_trace as st
+
 
 class AverageMeter(object):     
   """Computes and stores the average and current value"""    

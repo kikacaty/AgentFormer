@@ -63,6 +63,11 @@ def test_model(generator, save_dir, cfg):
         data = generator()
         if data is None:
             continue
+
+
+        s_pts = np.stack(data['pre_motion_3D'])[:, -1] * data['traj_scale']
+        data['scene_map'].get_cropped_maps(s_pts, [50, 10, 50, 90])
+
         seq_name, frame = data['seq'], data['frame']
         frame = int(frame)
         sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))  
@@ -124,6 +129,7 @@ if __name__ == '__main__':
             model = model_dict[model_id](cfg)
             model.set_device(device)
             model.eval()
+
             if epoch > 0:
                 cp_path = cfg.model_path % epoch
                 print_log(f'loading model from checkpoint: {cp_path}', log, display=True)

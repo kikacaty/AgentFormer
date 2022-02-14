@@ -1,3 +1,4 @@
+from turtle import update
 import numpy as np
 import argparse
 import os
@@ -8,9 +9,11 @@ import shutil
 sys.path.append(os.getcwd())
 from data.dataloader import data_generator
 from utils.torch import *
-from utils.config import Config
+from utils.config import Config, AdvConfig
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing
+
+from tqdm import tqdm
 
 from matplotlib import collections  as mc
 from matplotlib import pyplot as plt
@@ -18,33 +21,21 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.lines import Line2D
 from pdb import set_trace as st
 
+from utils.attack_utils.constraint import DynamicModel, DynamicStats
+from utils.attack_utils.attack import Attacker
+
 import re
 
+from eval import evaluate
 
-# class ped_model:
-#     def __init__(self):
-
-
-def get_model_prediction(data, sample_k):
+def get_model_prediction(data, sample_k, model):
     model.set_data(data)
     recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
     sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
     sample_motion_3D = sample_motion_3D.transpose(0, 1).contiguous()
     return recon_motion_3D, sample_motion_3D
 
-def motion_bending_loss(fut_motion, pred_motion):
-    try:
-        diff = (fut_motion - pred_motion).cpu()
-    except:
-        st()
-    loss_unweighted = diff.pow(2).sum()
-    bend_weight = torch.from_numpy(np.array([(12-i) for i in range(12)]))
-    loss_weighted = (diff.pow(2).sum(1) * bend_weight).sum()
-    return loss_weighted
-
-def dynamic_model():
-    pass
-
+""" Attack """
 def cal_dist(gt_motion):
     diff = gt_motion[1:,:,:] - gt_motion[0,:,:].tile(gt_motion.size(0)-1,1,1)
     avg_dist = diff.norm(dim=2).mean(axis=1)
@@ -52,53 +43,27 @@ def cal_dist(gt_motion):
     
 
 
-def get_adv_model_prediction(data, sample_k, alpha = 1e-2, eps = 1, iterations=10):
+def get_adv_model_prediction(data, sample_k, model, adv_cfg=None):
     model.set_data(data)
-    in_data = data
-    if iterations == 0:
-        recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
 
-        sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
-        sample_motion_3D = sample_motion_3D.transpose(0, 1).contiguous()
+    attacker = Attacker(model, adv_cfg)
+    if adv_cfg.mode == 'opt':
+        attacker.perturb_opt(data)
+    elif adv_cfg.mode == 'noise':
+        attacker.perturb_noise(data)
+    elif adv_cfg.mode == 'search':
+        attacker.perturb_search(data)
+    else:
+        raise NotImplementedError("Unknow attack mode!")
 
-        return recon_motion_3D, sample_motion_3D
+    # adv_recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
 
-    ori_pre_motion = model.data['pre_vel']
-    perturb_mask = torch.zeros_like(model.data['pre_vel'])
-    perturb_mask[...,0] = 1
-    target_id = 1
-    for i in range(iterations):
-        perturbed_pre_motion = model.data['pre_vel'].data
-        # for key in model.data.keys():
-        #     if model.data[key]
-        #     model.data[key].requires_grad = False
-        model.data['pre_vel'].requires_grad = True
-        target_fut_motion = model.data['fut_motion'][:,1,:]
+    # adv_sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
+    # adv_sample_motion_3D = adv_sample_motion_3D.transpose(0, 1).contiguous()
 
-        recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
+    # return adv_recon_motion_3D, adv_sample_motion_3D
 
-        sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
-        sample_motion_3D = sample_motion_3D.transpose(0, 1).contiguous()
-
-        target_pred_motion = sample_motion_3D[1][0]
-        model.zero_grad()
-
-        cost = motion_bending_loss(target_fut_motion, target_pred_motion).to(device)
-        print(cost.item())
-        cost.backward()
-
-        adv_pre_motion = perturbed_pre_motion + alpha*perturb_mask*model.data['pre_vel'].grad.sign()
-        eta = torch.clamp(adv_pre_motion - ori_pre_motion, min=-eps, max=eps)
-        model.data['pre_vel'] = (ori_pre_motion + eta).detach_()
-        
-    
-        update_pre_motion = torch.zeros_like(model.data['pre_motion'])
-        update_pre_motion[1:,...] = torch.cumsum(model.data['pre_vel'],dim=0) 
-        update_pre_motion += model.data['pre_motion'][0,...]
-        model.data['pre_motion'] = update_pre_motion
-        model.update_data(model.data, in_data)
-
-    return recon_motion_3D, sample_motion_3D
+    return attacker.recon_motion_list, attacker.sample_motion_list
 
 def save_prediction(pred, data, suffix, save_dir):
     pred_num = 0
@@ -133,81 +98,129 @@ def save_prediction(pred, data, suffix, save_dir):
         np.savetxt(fname, pred_arr, fmt="%.3f")
     return pred_num
 
-def test_model(generator, save_dir, cfg):
+def attack_model(generator, save_dir, cfg):
     total_num_pred = 0
     total_num_frame = 0
     dist_stats = torch.zeros(6)
     dist_cat = torch.tensor([5,6,7,8,9,10],dtype=torch.float)
+
+    pbar = tqdm(total=generator.num_total_samples)
+
+    eval_scenes = {}
+
     while not generator.is_epoch_end():
         data = generator()
-        if data is None or len(data['valid_id']) < 2:
+        skip = False
+        if data is None:
             continue
-        
-        result_log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-        with open(result_log_file,'r') as f:
-            result_log = f.read()
+        if data['pred_mask'].sum() < 2:
+            skip = True
+
+        # result_log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
+        # with open(result_log_file,'r') as f:
+        #     result_log = f.read()
             
-            results = re.findall(r"forecasting frame %06d .+ ADE: (\d+\.\d+)"%(data['frame']+1), result_log)
-            results = float(results[0])
+        #     results = re.findall(r"forecasting frame %06d .+ ADE: (\d+\.\d+)"%(data['frame']+1), result_log)
+        #     results = float(results[0])
             # if results > 0.1:
             #     continue 
         
-        seq_name, frame = data['seq'], data['frame']
-        frame = int(frame)
-        # sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))  
-        # sys.stdout.flush()
+        # seq_name, frame = data['seq'], int(data['frame'])
+
+        # ================= Start filtering input traces for attack =================
 
         gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * cfg.traj_scale
         gt_pre_motion_3D = torch.stack(data['pre_motion_3D'], dim=0).to(device) * cfg.traj_scale
         
-        avg_dist = cal_dist(gt_motion_3D)
+        # avg_dist = cal_dist(gt_motion_3D)
         
-        avg_movement = (gt_motion_3D[:,1:,:] - gt_motion_3D[:,:-1,:]).norm(dim=2).sum(axis=1).mean()
-        nade = results/avg_movement
+        # avg_movement = (gt_motion_3D[:,1:,:] - gt_motion_3D[:,:-1,:]).norm(dim=2).sum(axis=1).mean()
+        # nade = results/avg_movement
         
         # print(results, nade.item())
-        if nade > 0.2:
+        # if nade > 0.2:
+        #     continue
+        # dist_stats += (dist_cat > avg_movement.max().cpu())
+        # print(dist_stats,avg_movement)
+
+        # skip short adv history scenarios
+        if 0 in data['pre_motion_mask'][0]:
+            skip = True
+
+        # skip low speed scenarios
+        adv_pre = data['pre_motion_3D'][0]* cfg.traj_scale / 0.5
+        adv_pre_s = (adv_pre[1:] - adv_pre[:-1]) 
+        adv_fut = data['fut_motion_3D'][0]* cfg.traj_scale / 0.5
+        adv_fute_s = (adv_fut[1:] - adv_fut[:-1]) 
+        if adv_pre_s.norm(dim=1).min() < 1 or adv_fute_s.norm(dim=1).min() < 1:
+            skip = True
+        
+        if adv_cfg.debug:
+            if data['seq'] in eval_scenes.keys():
+                skip = True
+
+        # ================= End filtering input traces for attack =================
+
+        if skip:
+            if args.clean_results:
+                for idx in range(len(adv_cfg.iters)):
+                    adv_sample_dir = os.path.join(save_dir, f'samples_adv/step_{adv_cfg.iters[idx]}')
+                    fname = f"{adv_sample_dir}/{data['seq']}/frame_{int(data['frame']):06d}"
+                    shutil.rmtree(fname, ignore_errors=True)
+                    baseline_sample_dir = os.path.join(save_dir, f'samples_baseline')
+                    fname = f"{baseline_sample_dir}/{data['seq']}/frame_{int(data['frame']):06d}"
+                    shutil.rmtree(fname, ignore_errors=True)
             continue
-        dist_stats += (dist_cat > avg_movement.max().cpu())
-        print(dist_stats,avg_movement)
-        
-        
+        if args.clean_results:
+            continue
+
+
         with torch.no_grad():
-            recon_motion_3D, sample_motion_3D = get_model_prediction(data, cfg.sample_k)
+            recon_motion_3D, sample_motion_3D = get_model_prediction(data, cfg.sample_k, model)
 
         recon_motion_3D, sample_motion_3D = recon_motion_3D * cfg.traj_scale, sample_motion_3D * cfg.traj_scale
-
-        # generate adv
-        adv_recon_motion_3D, adv_sample_motion_3D = get_adv_model_prediction(data, cfg.sample_k, iterations=20, alpha = 1e-2, eps=1e-1)
-        adv_recon_motion_3D, adv_sample_motion_3D = adv_recon_motion_3D * cfg.traj_scale, adv_sample_motion_3D * cfg.traj_scale
-        
-        adv_agent_pre_path = np.array([(model.data['pre_vel'][:i,0,:].sum(axis=0) + model.data['pre_motion'][0,0,:]).cpu().numpy() for i in range(len(model.data['pre_vel'])+1)])
-        adv_agent_pre_path = adv_agent_pre_path * cfg.traj_scale
-        
-        # remove grad
-        adv_recon_motion_3D = adv_recon_motion_3D.detach()
-        adv_sample_motion_3D = adv_sample_motion_3D.detach()
 
         """save samples"""
         recon_dir = os.path.join(save_dir, 'recon_baseline'); mkdir_if_missing(recon_dir)
         sample_dir = os.path.join(save_dir, 'samples_baseline'); mkdir_if_missing(sample_dir)
-        adv_recon_dir = os.path.join(save_dir, 'recon_adv'); mkdir_if_missing(recon_dir)
-        adv_sample_dir = os.path.join(save_dir, 'samples_adv'); mkdir_if_missing(sample_dir)
         gt_dir = os.path.join(save_dir, 'gt'); mkdir_if_missing(gt_dir)
         for i in range(sample_motion_3D.shape[0]):
             save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir)
         save_prediction(recon_motion_3D, data, '', recon_dir)        # save recon
-        for i in range(adv_sample_motion_3D.shape[0]):
-            save_prediction(adv_sample_motion_3D[i], data, f'/sample_{i:03d}', adv_sample_dir)
-        save_prediction(adv_recon_motion_3D, data, '', adv_recon_dir)        # save adv recon
         num_pred = save_prediction(gt_motion_3D, data, '', gt_dir)   # save gt
+
+        # generate adv
+        adv_recon_motion_list, adv_sample_motion_list = get_adv_model_prediction(data, cfg.sample_k, model, adv_cfg=adv_cfg)
+        
+        # adv_agent_pre_path = np.array([(model.data['pre_vel'][:i,0,:].sum(axis=0) + model.data['pre_motion'][0,0,:]).cpu().numpy() for i in range(len(model.data['pre_vel'])+1)])
+        adv_agent_pre_path = model.data['pre_motion'][:,0,:].cpu().numpy()
+        adv_agent_pre_path = adv_agent_pre_path * cfg.traj_scale
+
+        """save samples"""
+        for idx, (adv_recon_motion, adv_sample_motion) in enumerate(zip(adv_recon_motion_list, adv_sample_motion_list)):
+            adv_recon_motion_3D, adv_sample_motion_3D = adv_recon_motion * cfg.traj_scale, adv_sample_motion * cfg.traj_scale
+
+            adv_recon_dir = os.path.join(save_dir, f'recon_adv/step_{adv_cfg.iters[idx]}'); mkdir_if_missing(adv_recon_dir)
+            adv_sample_dir = os.path.join(save_dir, f'samples_adv/step_{adv_cfg.iters[idx]}'); mkdir_if_missing(adv_sample_dir)
+            for i in range(adv_sample_motion_3D.shape[0]):
+                save_prediction(adv_sample_motion_3D[i], data, f'/sample_{i:03d}', adv_sample_dir)
+            save_prediction(adv_recon_motion_3D, data, '', adv_recon_dir)        # save adv recon
 
         # visualization
         if args.vis:
+
+            # map visualization
+            # data['pre_motion_3D'] = model.data['pre_motion'].transpose(1,0).detach().cpu()
+            # data['adv_fut_motion_3D'] = adv_sample_motion[0].detach().cpu()
+            # data['scene_map_vis'].visualize_data(data)
+
             vis_dir = os.path.join(save_dir, 'vis'); mkdir_if_missing(vis_dir)
 
             fig = plt.figure(figsize=[10,5])
             ax = fig.add_subplot(111)
+
+            line_w = 2
+            marker_s = 3
 
             pre_lines = []
             fut_lines = []
@@ -227,29 +240,13 @@ def test_model(generator, save_dir, cfg):
             pred_path = np.insert(pred_path, 0,pre_path[-1],axis=0)
             adv_pred_path = np.insert(adv_pred_path, 0,adv_agent_pre_path[-1],axis=0)
 
-            # c = np.array([[0, 1, 1, 1],[1, 0, 1, 1], [0, 1, 0, 1],[0, 0, 1, 1],[1, 0, 0, 1]])
-            # lines = [pre_path,adv_agent_pre_path,fut_path,pred_path,adv_pred_path]
-            # lc = mc.LineCollection(lines, colors=c, linewidths=2) #, linestyle = "dashed")
-            # ax.add_collection(lc)
-
-
-
-            # ax.scatter(pre_path[:,0], pre_path[:,1], c=np.tile(c[0],[len(pre_path),1]),marker='^', s=100)
-            # ax.scatter(fut_path[:,0], fut_path[:,1], c=np.tile(c[2],[len(fut_path),1]),marker='^')
-            # ax.scatter(pred_path[:,0], pred_path[:,1], c=np.tile(c[3],[len(pred_path),1]),marker='^')
-            # ax.scatter(adv_pred_path[:,0], adv_pred_path[:,1], c=np.tile(c[4],[len(adv_pred_path),1]),marker='^')
-            # ax.scatter(adv_agent_pre_path[:,0], adv_agent_pre_path[:,1], c=np.tile(c[1],[len(adv_agent_pre_path),1]),marker='^')
-
             c = ['C0','C1','C2','C3','C4']
 
-            pre_lines.append((ax.plot(pre_path[:,0], pre_path[:,1], color=c[0],marker='^', linewidth=2)[0],pre_path))
-            adv_agent_pre_line = ax.plot(adv_agent_pre_path[:,0], adv_agent_pre_path[:,1], color=c[4],marker='^')[0]
-            fut_lines.append((ax.plot(fut_path[:,0], fut_path[:,1], color=c[1],marker='^', linewidth=2)[0],fut_path))
-            pred_lines.append((ax.plot(pred_path[:,0], pred_path[:,1], color=c[2],marker='^', linewidth=2)[0],pred_path))
-            adv_pred_lines.append((ax.plot(adv_pred_path[:,0], adv_pred_path[:,1], color=c[3],marker='^')[0],adv_pred_path))
-
-
-
+            pre_lines.append((ax.plot(pre_path[:,0], pre_path[:,1], color=c[0],marker='^', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],pre_path))
+            adv_agent_pre_line = ax.plot(adv_agent_pre_path[:,0], adv_agent_pre_path[:,1], color=c[4],marker='^', markersize=marker_s,alpha=0.5)[0]
+            fut_lines.append((ax.plot(fut_path[:,0], fut_path[:,1], color=c[1],marker='^', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],fut_path))
+            pred_lines.append((ax.plot(pred_path[:,0], pred_path[:,1], color=c[2],marker='^', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],pred_path))
+            adv_pred_lines.append((ax.plot(adv_pred_path[:,0], adv_pred_path[:,1], color=c[3],marker='^', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],adv_pred_path))
 
             # other agents
             for idx in range(len(data['pre_motion_3D'])-1):
@@ -264,21 +261,11 @@ def test_model(generator, save_dir, cfg):
                 fut_path = np.insert(fut_path, 0,pre_path[-1],axis=0)
                 pred_path = np.insert(pred_path, 0,pre_path[-1],axis=0)
                 adv_pred_path = np.insert(adv_pred_path, 0,pre_path[-1],axis=0)
-
-                # c = np.array([[1, 1, 0, 0.8], [0, 1, 0, 0.8],[0, 0, 1, 0.8],[1, 0, 0, 0.8]])
-                # lines = [pre_path,fut_path,pred_path,adv_pred_path]
-                # lc = mc.LineCollection(lines, colors=c, linewidths=2)
-                # ax.add_collection(lc)
-
-                # ax.scatter(pre_path[:,0], pre_path[:,1], c=np.tile(c[0],[len(pre_path),1]))
-                # ax.scatter(fut_path[:,0], fut_path[:,1], c=np.tile(c[1],[len(fut_path),1]))
-                # ax.scatter(pred_path[:,0], pred_path[:,1], c=np.tile(c[2],[len(pred_path),1]))
-                # ax.scatter(adv_pred_path[:,0], adv_pred_path[:,1], c=np.tile(c[3],[len(adv_pred_path),1]))
                 
-                pre_lines.append((ax.plot(pre_path[:,0], pre_path[:,1], color=c[0],marker='o', linewidth=2)[0],pre_path))
-                fut_lines.append((ax.plot(fut_path[:,0], fut_path[:,1], color=c[1],marker='o', linewidth=2)[0],fut_path))
-                pred_lines.append((ax.plot(pred_path[:,0], pred_path[:,1], color=c[2],marker='o', linewidth=2)[0],pred_path))
-                adv_pred_lines.append((ax.plot(adv_pred_path[:,0], adv_pred_path[:,1], color=c[3],marker='o', linewidth=2)[0],adv_pred_path))
+                pre_lines.append((ax.plot(pre_path[:,0], pre_path[:,1], color=c[0],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],pre_path))
+                fut_lines.append((ax.plot(fut_path[:,0], fut_path[:,1], color=c[1],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],fut_path))
+                pred_lines.append((ax.plot(pred_path[:,0], pred_path[:,1], color=c[2],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],pred_path))
+                adv_pred_lines.append((ax.plot(adv_pred_path[:,0], adv_pred_path[:,1], color=c[3],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],adv_pred_path))
 
 
 
@@ -289,9 +276,22 @@ def test_model(generator, save_dir, cfg):
                             Line2D([0], [0], color=c[4], lw=2, label='adv_pre'),
                     Line2D([0], [0], color='w', markerfacecolor='black', marker='^', label='adv agent'),
                     Line2D([0], [0], color='w', markerfacecolor='black', marker='o', label='benign agent')]
-            ax.autoscale()
+            
+            window = 50
+            centerx, centery = np.mean(plt.xlim()), np.mean(plt.ylim())
+            plt.xlim((centerx - window, centerx + window))
+            plt.ylim((centery - window, centery + window))
             ax.margins(0.1)
-            ax.legend(handles=legend_elements)
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+            # Put a legend to the right of the current axis
+            ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+            # ax.legend(handles=legend_elements)
+            lim = np.stack([plt.xlim(),plt.ylim()]).transpose()
+            lim_pos = np.round(data['scene_map_vis'].to_map_points(lim)).astype(int)
+            cropped_map = data['scene_map_vis'].data.transpose(2,1,0)[lim_pos[0,1]:lim_pos[1,1],lim_pos[0,0]:lim_pos[1,0],:]
+            cropped_map = np.flip(cropped_map,0)
+            ax.imshow(cropped_map, alpha=0.8, extent=[plt.xlim()[0], plt.xlim()[1], plt.ylim()[0], plt.ylim()[1]])
             
             def update(num, adv):
                 num += 1
@@ -334,8 +334,14 @@ def test_model(generator, save_dir, cfg):
             plt.savefig(os.path.join(vis_dir, "%03d_adv.png" % total_num_frame))
             plt.close('all')
 
+
         total_num_pred += num_pred
         total_num_frame += 1
+        if len(adv_cfg.ttl_frame) > 0 and adv_cfg.ttl_frame[0] < total_num_frame:
+            break
+        eval_scenes[data['seq']] = True
+
+        pbar.update(generator.index-pbar.n)
 
     print_log(f'\n\n total_num_pred: {total_num_pred}', log)
     if cfg.dataset == 'nuscenes_pred':
@@ -356,10 +362,21 @@ if __name__ == '__main__':
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
     parser.add_argument('--vis', action='store_true', default=False)
+
+    parser.add_argument('--eval', action='store_true', default=False)
+    parser.add_argument('--clean_results', action='store_true', default=False)
+
+
+    # ================= Attack args =================
+    parser.add_argument('--adv_cfg', default='base')
     args = parser.parse_args()
 
     """ setup """
     cfg = Config(args.cfg)
+    adv_cfg = AdvConfig(args.adv_cfg)
+    adv_cfg.sample_k = cfg.sample_k
+    adv_cfg.traj_scale = cfg.traj_scale
+
     if args.epochs is None:
         epochs = [cfg.get_last_epoch()]
     else:
@@ -369,45 +386,65 @@ if __name__ == '__main__':
     device = torch.device('cuda', index=args.gpu) if args.gpu >= 0 and torch.cuda.is_available() else torch.device('cpu')
     if torch.cuda.is_available(): torch.cuda.set_device(args.gpu)
 
-    # enable grad for pgd attack
-    # torch.set_grad_enabled(False)
-    log = open(os.path.join(cfg.log_dir, 'log_test.txt'), 'w')
+    adv_cfg.device = device
 
-    for epoch in epochs:
-        prepare_seed(cfg.seed)
-        """ model """
-        if not args.cached:
-            model_id = cfg.get('model_id', 'gnnv1')
-            model = model_dict[model_id](cfg)
-            model.set_device(device)
-            model.eval()
-            if epoch > 0:
-                cp_path = cfg.model_path % epoch
-                print_log(f'loading model model from checkpoint: {cp_path}', log, display=True)
-                model_cp = torch.load(cp_path, map_location='cpu')
-                model.load_state_dict(model_cp['model_dict'], strict=False)
+    if args.eval:
+        for epoch in epochs:
+            data_splits = [args.data_eval]
+            for split in data_splits:  
+                results = []
+                save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'
+                eval_dir = f'{save_dir}/samples_baseline'
+                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
+                for iters in adv_cfg.iters:
+                    adv_eval_dir = f'{save_dir}/samples_adv/step_{iters}'
+                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                    results.append(f'{iters}\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
+        print('iters\t'+'\t'.join([f'{x}' for x, y in stats_meter.items()]))
+        print('\n'.join(results))
 
-        """ save results and compute metrics """
-        data_splits = [args.data_eval]
+    else:
+        # enable grad for pgd attack
+        # torch.set_grad_enabled(False)
+        log = open(os.path.join(cfg.log_dir, 'log_test.txt'), 'w')
 
-        for split in data_splits:  
-            generator = data_generator(cfg, log, split=split, phase='testing')
-            save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}'; mkdir_if_missing(save_dir)
-            eval_dir = f'{save_dir}/samples_baseline'
-            adv_eval_dir = f'{save_dir}/samples_adv'
+        for epoch in epochs:
+            prepare_seed(cfg.seed)
+            """ model """
             if not args.cached:
-                test_model(generator, save_dir, cfg)
+                model_id = cfg.get('model_id', 'gnnv1')
+                model = model_dict[model_id](cfg)
+                model.set_device(device)
+                model.eval()
+                if epoch > 0:
+                    cp_path = cfg.model_path % epoch
+                    print_log(f'loading model model from checkpoint: {cp_path}', log, display=True)
+                    model_cp = torch.load(cp_path, map_location='cpu')
+                    model.load_state_dict(model_cp['model_dict'], strict=False)
 
-            log_file = os.path.join(cfg.log_dir, 'log_eval_baseline.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file}"
-            subprocess.run(cmd.split(' '))
-            
-            log_file = os.path.join(cfg.log_dir, 'log_eval_adv.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {adv_eval_dir} --data {split} --log {log_file}"
-            subprocess.run(cmd.split(' '))
+            """ save results and compute metrics """
+            data_splits = [args.data_eval]
+            results = []
+            for split in data_splits:  
+                generator = data_generator(cfg, log, split=split, phase='testing')
+                save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'; mkdir_if_missing(save_dir)
+                eval_dir = f'{save_dir}/samples_baseline'
+                if not args.cached:
+                    attack_model(generator, save_dir, cfg)
 
-            # remove eval folder to save disk space
-            if args.cleanup:
-                shutil.rmtree(save_dir)
+                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
+
+                for iters in adv_cfg.iters:
+                    adv_eval_dir = f'{save_dir}/samples_adv/step_{iters}'
+                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                    results.append(f'{iters}\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
+
+                print('iters\t'+'\t'.join([f'{x}' for x, y in stats_meter.items()]))
+                print('\n'.join(results))
+                # remove eval folder to save disk space
+                if args.cleanup:
+                    shutil.rmtree(save_dir)
 
 

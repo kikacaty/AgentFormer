@@ -185,6 +185,7 @@ class preprocess(object):
             'traj_scale': self.traj_scale,
             'pred_mask': pred_mask,
             'scene_map': self.geom_scene_map,
+            'scene_map_vis': self.scene_vis_map,
             'seq': self.seq_name,
             'frame': frame
         }

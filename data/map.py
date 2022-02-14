@@ -2,12 +2,26 @@
 Code borrowed from Trajectron++: https://github.com/StanfordASL/Trajectron-plus-plus/blob/ef0165a93ee5ba8cdc14f9b999b3e00070cd8588/trajectron/environment/map.py
 """
 
+from struct import Struct
 import torch
 import numpy as np
 import cv2
 import os
 from .homography_warper import get_rotation_matrix2d, warp_affine_crop
 
+class MapUtils:
+    layer_names = ['lane', 'road_segment', 'drivable_area', 'road_divider', 'lane_divider', 'stop_line', 'ped_crossing', 'walkway']
+    colors = {
+        'rest': [255, 240, 243],
+        'lane': [206, 229, 223],
+        'road_segment': [206, 229, 223],
+        'drivable_area': [206, 229, 223],
+        'ped_crossing': [226, 228, 234],
+        'walkway': [169, 209, 232],
+        'road_divider': [255, 251, 242],
+        'lane_divider': [100, 100, 100],
+        'stop_line': [0, 255, 255],
+    }
 
 class Map(object):
     def __init__(self, data, homography, description=None):
@@ -121,16 +135,20 @@ class GeometricMap(Map):
         context_padding_x = int(np.ceil(np.sqrt(2) * long_size))
         context_padding_y = int(np.ceil(np.sqrt(2) * long_size))
 
-        centers = torch.tensor([s_map.to_map_points(scene_pts[np.newaxis, i]) for i, s_map in enumerate(maps)],
-                               dtype=torch.long, device=device).squeeze(dim=1) \
-                  + torch.tensor([context_padding_x, context_padding_y], device=device, dtype=torch.long)
+        try:
+            centers = torch.tensor([s_map.to_map_points(scene_pts[np.newaxis, i]) for i, s_map in enumerate(maps)],
+                                dtype=torch.long, device=device).squeeze(dim=1) \
+                    + torch.tensor([context_padding_x, context_padding_y], device=device, dtype=torch.long)
 
-        padded_map = [s_map.get_padded_map(context_padding_x, context_padding_y, device=device) for s_map in maps]
+            padded_map = [s_map.get_padded_map(context_padding_x, context_padding_y, device=device) for s_map in maps]
 
-        padded_map_batched = torch.stack([padded_map[i][...,
-                                          centers[i, 0] - context_padding_x: centers[i, 0] + context_padding_x,
-                                          centers[i, 1] - context_padding_y: centers[i, 1] + context_padding_y]
-                                          for i in range(centers.shape[0])], dim=0)
+            padded_map_batched = torch.stack([padded_map[i][...,
+                                            centers[i, 0] - context_padding_x: centers[i, 0] + context_padding_x,
+                                            centers[i, 1] - context_padding_y: centers[i, 1] + context_padding_y]
+                                            for i in range(centers.shape[0])], dim=0)
+        except:
+            from pdb import set_trace as st
+            st()
 
         center_patches = torch.tensor([[context_padding_y, context_padding_x]],
                                       dtype=torch.int,
@@ -194,19 +212,49 @@ class GeometricMap(Map):
     def visualize_data(self, data):
         pre_motion = np.stack(data['pre_motion_3D']) * data['traj_scale']
         fut_motion = np.stack(data['fut_motion_3D']) * data['traj_scale']
+        
         heading = data['heading']
-        img = np.transpose(self.data, (1, 2, 0))
+        img = np.transpose(self.data, (1, 2, 0)).copy()
+        # from pdb import set_trace as st
+        # st()
         for i in range(pre_motion.shape[0]):
+            prev_pos = pre_motion[i, 0]
+            prev_pos = np.round(self.to_map_points(prev_pos)).astype(int)
+
+            # draw pre traj
+            for t in range(pre_motion.shape[1]-1):
+                pos = pre_motion[i, t+1]
+                pos = np.round(self.to_map_points(pos)).astype(int)
+                # img = cv2.circle(img, (pos[1], pos[0]), 1, (255, 255, 0), -1)
+                if i == 0:
+                    #adv
+                    img = cv2.line(img, (prev_pos[1], prev_pos[0]), (pos[1], pos[0]), (0, 0, 255), 1) 
+                else:
+                    img = cv2.line(img, (prev_pos[1], prev_pos[0]), (pos[1], pos[0]), (0, 200, 200), 1) 
+                prev_pos = pos
+
             cur_pos = pre_motion[i, -1]
-            # draw agent
             cur_pos = np.round(self.to_map_points(cur_pos)).astype(int)
+            # draw agents
             img = cv2.circle(img, (cur_pos[1], cur_pos[0]), 3, (0, 255, 0), -1)
             prev_pos = cur_pos
-            # draw fut traj
-            for t in range(fut_motion.shape[0]):
+
+            for t in range(fut_motion.shape[1]):
                 pos = fut_motion[i, t]
                 pos = np.round(self.to_map_points(pos)).astype(int)
-                img = cv2.line(img, (prev_pos[1], prev_pos[0]), (pos[1], pos[0]), (0, 255, 0), 2) 
+                # img = cv2.circle(img, (pos[1], pos[0]), 1, (255, 255, 0), -1)
+                img = cv2.line(img, (prev_pos[1], prev_pos[0]), (pos[1], pos[0]), (255, 255, 0), 1) 
+                prev_pos = pos
+
+            if 'adv_fut_motion_3D' in data.keys():
+                adv_fut_motion = np.stack(data['adv_fut_motion_3D']) * data['traj_scale']
+                prev_pos = cur_pos
+                for t in range(adv_fut_motion.shape[1]):
+                    pos = adv_fut_motion[i, t]
+                    pos = np.round(self.to_map_points(pos)).astype(int)
+                    # img = cv2.circle(img, (pos[1], pos[0]), 1, (255, 255, 0), -1)
+                    img = cv2.line(img, (prev_pos[1], prev_pos[0]), (pos[1], pos[0]), (0, 0, 255), 1) 
+                    prev_pos = pos
 
             # draw heading
             theta = heading[i]
@@ -216,7 +264,7 @@ class GeometricMap(Map):
             v_new[1] = v[0] * np.sin(theta) + v[1] * np.cos(theta)
             vend = pre_motion[i, -1] + v_new
             vend = np.round(self.to_map_points(vend)).astype(int)
-            img = cv2.line(img, (cur_pos[1], cur_pos[0]), (vend[1], vend[0]), (0, 255, 255), 2) 
+            # img = cv2.line(img, (cur_pos[1], cur_pos[0]), (vend[1], vend[0]), (0, 255, 255), 2) 
 
         fname = f'out/agent_maps/{data["seq"]}_{data["frame"]}_vis.png'
         os.makedirs(os.path.dirname(fname), exist_ok=True)

@@ -93,8 +93,8 @@ class DLow(nn.Module):
         self.pred_model[0].set_data(data)
         self.data = self.pred_model[0].data
         
-    def update_data(self, data, in_data):
-        self.pred_model[0].update_data(data, in_data)
+    def update_data(self, data):
+        self.pred_model[0].update_data_infer(data)
         self.data = self.pred_model[0].data
 
     def main(self, mean=False, need_weights=False):

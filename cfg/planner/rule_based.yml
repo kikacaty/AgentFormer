@@ -1,0 +1,43 @@
+dt: 0.2  # seconds
+res_meters: 1.5  # meters
+eps: 1.0e-6 # meters
+cdisttheta: 20.0  # degrees
+xydistmax: 2.0  # meters
+lane_ds: 0.4  # meters
+lane_sig: 3.5  # meters
+sbuffer: 3.0  # meters
+
+# planning
+smax: 15.0  # m/s
+nsteps: 12
+preddt: 0.2  # seconds
+maxacc: 3.0  # m/s/s
+predsfacs: [0.5, 1.0]  # s' = sf * s
+predafacs: [0.5]  # a' = af * a
+interacdist: 70.0  # m
+planaccfacs:  [0.5, 1.0]  # a' = af * maxacc
+plannspeeds: 15  # this many stgts between 0 m/s and smax
+score_wmin: 1.75525  # controls fall-off for t=0
+score_wfac: 0.161933  # controls fall-off for t>0
+
+# 'dt' : 0.2, 
+# 'preddt' : 0.2,
+# 'nsteps' : 25,
+# 'cdistang' : 20.0,
+# 'xydistmax' : 2.0,
+# 'smax' : 20.0,
+# 'accmax' : 4.0,
+# 'predsfacs' : [0.5, 1.0],
+# 'predafacs' : [0.5],
+# 'interacdist' : 70.0,
+# 'planaccfacs' : [1.0],
+# 'plannspeeds' : 5,
+# 'col_plim' : 0.1,
+# 'score_wmin' : 0.3,
+# 'score_wfac' : 0.02
+
+keptclasses: ['vehicle.emergency.ambulance', 'vehicle.emergency.police', 'vehicle.bicycle',
+              'vehicle.bus.rigid', 'vehicle.car', 'vehicle.construction',
+              'vehicle.motorcycle', 'vehicle.truck']
+vis_pred: True
+dump_scene: True

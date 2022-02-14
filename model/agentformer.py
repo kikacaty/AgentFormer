@@ -254,8 +254,8 @@ class FutureEncoder(nn.Module):
             data['q_z_dist'] = Normal(params=q_z_params)
         else:
             data['q_z_dist'] = Categorical(logits=q_z_params, temp=self.z_tau_annealer.val())
-        # data['q_z_samp'] = data['q_z_dist'].rsample()
-        data['q_z_samp'] = data['q_z_dist'].fixedsample()
+        data['q_z_samp'] = data['q_z_dist'].rsample()
+        # data['q_z_samp'] = data['q_z_dist'].fixedsample()
 
 
 """ Future Decoder """
@@ -420,8 +420,8 @@ class FutureDecoder(nn.Module):
             if mode in {'train', 'recon'}:
                 z = data['q_z_samp'] if mode == 'train' else data['q_z_dist'].mode()
             elif mode == 'infer':
-                # z = data['p_z_dist_infer'].sample()
-                z = data['p_z_dist_infer'].fixedsample()
+                z = data['p_z_dist_infer'].sample()
+                # z = data['p_z_dist_infer'].fixedsample()
             else:
                 raise ValueError('Unknown Mode!')
 
@@ -505,13 +505,76 @@ class AgentFormer(nn.Module):
         self.device = device
         self.to(device)
 
-    def update_data(self, data, in_data):
+    def update_data_infer(self, data):
         # self.set_data(data)
         # rotate the scene
         device = self.device
 
-        self.data['pre_motion'] = data['pre_motion']
-        self.data['scene_orig'] = torch.cat([self.data['pre_motion'], self.data['fut_motion']]).view(-1, 2).mean(dim=0)
+        self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
+
+        scene_orig_all_past = self.cfg.get('scene_orig_all_past', False)
+
+        if scene_orig_all_past:
+            self.data['scene_orig'] = self.data['pre_motion'].view(-1, 2).mean(dim=0)
+        else:
+            self.data['scene_orig'] = self.data['pre_motion'][-1].mean(dim=0)
+
+        if self.rand_rot_scene and self.training:
+            if self.discrete_rot:
+                theta = torch.randint(high=24, size=(1,)).to(device) * (np.pi / 12)
+            else:
+                theta = torch.rand(1).to(device) * np.pi * 2
+            for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
+                self.data[f'{key}'], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
+            if data['heading'] is not None:
+                self.data['heading'] += theta
+        else:
+            theta = torch.zeros(1).to(device)
+            for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
+                self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   # normalize per scene
+
+        # agent maps is fixed when fixed current location
+        # if self.use_map:
+        #     scene_map = data['scene_map']
+        #     scene_points = self.data['pre_motion'][-1,:].cpu().numpy() * data['traj_scale']
+        #     if self.map_global_rot:
+        #         patch_size = [50, 50, 50, 50]
+        #         rot = theta.repeat(self.data['agent_num']).cpu().numpy() * (180 / np.pi)
+        #     else:
+        #         patch_size = [50, 10, 50, 90]
+        #         rot = -np.array(data['heading'])  * (180 / np.pi)
+        #     self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
+        
+    def update_data_train(self, pre_motion, data):
+        device = self.device
+        if self.training and len(data['pre_motion_3D']) > self.max_train_agent:
+            in_data = {}
+            # ind = np.random.choice(len(data['pre_motion_3D']), self.max_train_agent-1).tolist()
+            ind = self.data['ind'] # fixed data when attack
+            for key in ['pre_motion_3D', 'fut_motion_3D', 'fut_motion_mask', 'pre_motion_mask', 'heading']:
+                in_data[key] = [data[key][i] for i in ind if data[key] is not None]
+        else:
+            in_data = data
+
+        self.data = defaultdict(lambda: None)
+        self.data['batch_size'] = len(in_data['pre_motion_3D'])
+        self.data['agent_num'] = len(in_data['pre_motion_3D'])
+        # self.data['pre_motion'] = torch.stack(in_data['pre_motion_3D'], dim=0).to(device).transpose(0, 1).contiguous()
+        self.data['pre_motion'] = pre_motion
+        self.data['fut_motion'] = torch.stack(in_data['fut_motion_3D'], dim=0).to(device).transpose(0, 1).contiguous()
+        self.data['fut_motion_orig'] = torch.stack(in_data['fut_motion_3D'], dim=0).to(device)   # future motion without transpose
+        self.data['fut_mask'] = torch.stack(in_data['fut_motion_mask'], dim=0).to(device)
+        self.data['pre_mask'] = torch.stack(in_data['pre_motion_mask'], dim=0).to(device)
+        scene_orig_all_past = self.cfg.get('scene_orig_all_past', False)
+
+        if scene_orig_all_past:
+            self.data['scene_orig'] = self.data['pre_motion'].view(-1, 2).mean(dim=0)
+        else:
+            self.data['scene_orig'] = self.data['pre_motion'][-1].mean(dim=0)
+        if in_data['heading'] is not None:
+            self.data['heading'] = torch.tensor(in_data['heading']).float().to(device)
+
+        # rotate the scene
         if self.rand_rot_scene and self.training:
             if self.discrete_rot:
                 theta = torch.randint(high=24, size=(1,)).to(device) * (np.pi / 12)
@@ -525,11 +588,19 @@ class AgentFormer(nn.Module):
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   # normalize per scene
+                
+        self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
+        self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
+        self.data['cur_motion'] = self.data['pre_motion'][[-1]]
+        self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # normalize pos per agent
+        self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']
+        if in_data['heading'] is not None:
+            self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
 
         # agent maps
         if self.use_map:
-            scene_map = in_data['scene_map']
-            scene_points = data['pre_motion'][-1,:].cpu().numpy() * in_data['traj_scale']
+            scene_map = data['scene_map']
+            scene_points = np.stack(in_data['pre_motion_3D'])[:, -1] * data['traj_scale']
             if self.map_global_rot:
                 patch_size = [50, 50, 50, 50]
                 rot = theta.repeat(self.data['agent_num']).cpu().numpy() * (180 / np.pi)
@@ -537,13 +608,33 @@ class AgentFormer(nn.Module):
                 patch_size = [50, 10, 50, 90]
                 rot = -np.array(in_data['heading'])  * (180 / np.pi)
             self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
-        
+
+        # agent shuffling
+        if self.training and self.ctx['agent_enc_shuffle']:
+            self.data['agent_enc_shuffle'] = torch.randperm(self.ctx['max_agent_len'])[:self.data['agent_num']].to(device)
+        else:
+            self.data['agent_enc_shuffle'] = None
+
+        conn_dist = self.cfg.get('conn_dist', 100000.0)
+        cur_motion = self.data['cur_motion'][0]
+        if conn_dist < 1000.0:
+            threshold = conn_dist / self.cfg.traj_scale
+            pdist = F.pdist(cur_motion)
+            D = torch.zeros([cur_motion.shape[0], cur_motion.shape[0]]).to(device)
+            D[np.triu_indices(cur_motion.shape[0], 1)] = pdist
+            D += D.T
+            mask = torch.zeros_like(D)
+            mask[D > threshold] = float('-inf')
+        else:
+            mask = torch.zeros([cur_motion.shape[0], cur_motion.shape[0]]).to(device)
+        self.data['agent_mask'] = mask
 
     def set_data(self, data):
         device = self.device
         if self.training and len(data['pre_motion_3D']) > self.max_train_agent:
             in_data = {}
             ind = np.random.choice(len(data['pre_motion_3D']), self.max_train_agent).tolist()
+            self.data['ind'] = ind # fixed for adv attack
             for key in ['pre_motion_3D', 'fut_motion_3D', 'fut_motion_mask', 'pre_motion_mask', 'heading']:
                 in_data[key] = [data[key][i] for i in ind if data[key] is not None]
         else:
