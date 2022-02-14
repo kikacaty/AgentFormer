@@ -14,6 +14,8 @@ from utils.torch import *
 from utils.config import Config
 from utils.utils import prepare_seed, print_log, AverageMeter, convert_secs2time, get_timestring
 
+from utils.attack_utils.attack import Attacker
+
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
@@ -38,7 +40,19 @@ def logging(cfg, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_st
 		convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str), log)
 
 
-def gen_adv_data(data, alpha = 1e-2, eps = 1, iterations=5):
+def gen_adv_data(data, adv_cfg=None):
+    model.set_data(data)
+
+    attacker = Attacker(model, adv_cfg)
+    if adv_cfg.mode == 'opt':
+        attacker.perturb_opt(data)
+    elif adv_cfg.mode == 'noise':
+        attacker.perturb_noise(data)
+    elif adv_cfg.mode == 'search':
+        attacker.perturb_search(data)
+    else:
+        raise NotImplementedError("Unknow attack mode!")
+    
     in_data = data
 
     if len(data['pre_motion_3D']) <= 1:

@@ -361,14 +361,20 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
-    parser.add_argument('--vis', action='store_true', default=False)
 
+    parser.add_argument('--vis', action='store_true', default=False)
     parser.add_argument('--eval', action='store_true', default=False)
     parser.add_argument('--clean_results', action='store_true', default=False)
 
+    parser.add_argument('--ngc', action='store_true', default=False)
 
     # ================= Attack args =================
     parser.add_argument('--adv_cfg', default='base')
+
+
+
+
+
     args = parser.parse_args()
 
     """ setup """
@@ -376,6 +382,9 @@ if __name__ == '__main__':
     adv_cfg = AdvConfig(args.adv_cfg)
     adv_cfg.sample_k = cfg.sample_k
     adv_cfg.traj_scale = cfg.traj_scale
+
+    if args.ngc:
+        cfg.result_dir = '/workspace/results'
 
     if args.epochs is None:
         epochs = [cfg.get_last_epoch()]
