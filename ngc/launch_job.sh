@@ -10,7 +10,7 @@ helpFunction()
    exit 1 # Exit script after printing help
 }
 
-while getopts "c:n:i:" opt
+while getopts "a:n:s:" opt
 do
    case "$opt" in
       n ) NAME="$OPTARG" ;;
@@ -28,14 +28,6 @@ MODE="${MODE:-"NORMAL"}"
 STEP="${STEP:-"1"}"
 INSTANCE="${INSTANCE:-"16g"}"
 RUNTIME="${RUNTIME:-"48h"}"
-
-
-
-if [ "$CASE" == "Pred" ];then
-    NAME="${NAME:-bs_256_adam_ml_model_l5kit}"
-else
-    NAME="${NAME:-bs_256_adam_ml_model_l5kit_GAN}"
-fi
 
 
 if [ "$INSTANCE" == "32g" ];then
@@ -56,7 +48,7 @@ echo "step: $STEP"
 echo "instance: $INS"
 
 
-WS_ID=CPn3OVBiQ1Gz5U7dDN8B-w # replace with your workspace ID
+WS_ID=yulong-avg # replace with your workspace ID
 WS_MOUNT_POINT=/workspace/adv_pred/
 DS_MOUNT_POINT=/workspace/adv_pred/datasets/
 RESULT_DIR=/workspace/adv_pred/results/
@@ -82,7 +74,7 @@ echo "$CMD"
 ngc batch run \
  --instance "$INS" \
  --name "$NAME" \
- --image "nvcr.io/nvidian/nvr-av/tbsim:latest" \
+ --image "nvcr.io/nvidia/pytorch:22.01-py3" \
  --workspace "$WS_ID":"$WS_MOUNT_POINT" \
  --result "$RESULT_DIR" \
  --port 8888 \
