@@ -11,10 +11,12 @@ sys.path.append(os.getcwd())
 from data.dataloader import data_generator
 from model.model_lib import model_dict
 from utils.torch import *
-from utils.config import Config
+from utils.config import Config, AdvConfig
 from utils.utils import prepare_seed, print_log, AverageMeter, convert_secs2time, get_timestring
 
 from utils.attack_utils.attack import Attacker
+
+import wandb
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.deterministic = True
@@ -102,6 +104,7 @@ def train(epoch, args):
     train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
     train_loss_meter['total_loss'] = AverageMeter()
     last_generator_index = 0
+    attacker = Attacker(model, adv_cfg)
     while not generator.is_epoch_end():
         data = generator()
         if data is not None:
@@ -115,7 +118,13 @@ def train(epoch, args):
 
             if gen_adv:
                 model.eval()
-                gen_adv_data(data)
+                if adv_cfg.mode == 'opt':
+                    attacker.perturb_opt_train(data)
+                elif adv_cfg.mode == 'noise':
+                    attacker.perturb_noise_train(data)
+                else:
+                    raise NotImplementedError("Unknow attack mode!")
+
 
             model.train()
             model_data = model()
@@ -139,6 +148,12 @@ def train(epoch, args):
             tb_ind += 1
             last_generator_index = generator.index
 
+            wandb_log = {}
+            for x, y in train_loss_meter.items():
+                wandb_log[x] = y.avg
+            wandb_log['epoch'] = epoch
+            wandb.log(wandb_log)
+
     scheduler.step()
     model.step_annealer()
 
@@ -146,19 +161,40 @@ def train(epoch, args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', default='k10_res')
+    parser.add_argument('--adv_cfg', default=None)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--mix', action='store_true', default=False)
+    parser.add_argument('--free', action='store_true', default=False)
+    parser.add_argument('--pgd_step', type=int, default=1)
 
     args = parser.parse_args()
 
     """ setup """
     cfg = Config(args.cfg, args.tmp, create_dirs=True)
+    adv_cfg = AdvConfig(args.adv_cfg, args.tmp, create_dirs=True)
+    adv_cfg.traj_scale = cfg.traj_scale
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if torch.cuda.is_available() else torch.device('cpu')
     if torch.cuda.is_available(): torch.cuda.set_device(args.gpu)
+    adv_cfg.device = device
+
+    # set up wandb
+    wandb.init(project="robust_pred", entity="yulongc")
+    wandb.config = {
+        'pgd_step': args.pgd_step,
+        'mix': args.mix,
+        'free': args.free,
+        'adv mode': adv_cfg.mode
+    }
+    adv_cfg.iters = [args.pgd_step]
+
+    exp_name = f'pgd_step_{args.pgd_step}_mix_{args.mix}_free_{args.free}_adv_{adv_cfg.mode}_single'
+    wandb.run.name = exp_name
+    wandb.run.save()
+    cfg.update_dirs(exp_name)
     
     time_str = get_timestring()
     log = open(os.path.join(cfg.log_dir, 'log.txt'), 'a+')
@@ -168,6 +204,10 @@ if __name__ == '__main__':
     print_log("cudnn version : {}".format(torch.backends.cudnn.version()), log)
     tb_logger = SummaryWriter(cfg.tb_dir)
     tb_ind = 0
+
+
+    
+
 
     """ data """
     generator = data_generator(cfg, log, split='train', phase='training')

@@ -545,7 +545,7 @@ class AgentFormer(nn.Module):
         #         rot = -np.array(data['heading'])  * (180 / np.pi)
         #     self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
         
-    def update_data_train(self, pre_motion, data):
+    def update_data(self, data, pre_motion=None, heading=None):
         device = self.device
         if self.training and len(data['pre_motion_3D']) > self.max_train_agent:
             in_data = {}
@@ -571,8 +571,9 @@ class AgentFormer(nn.Module):
             self.data['scene_orig'] = self.data['pre_motion'].view(-1, 2).mean(dim=0)
         else:
             self.data['scene_orig'] = self.data['pre_motion'][-1].mean(dim=0)
-        if in_data['heading'] is not None:
-            self.data['heading'] = torch.tensor(in_data['heading']).float().to(device)
+        # if in_data['heading'] is not None:
+        #     self.data['heading'] = torch.tensor(in_data['heading']).float().to(device)
+        self.data['heading'] = heading
 
         # rotate the scene
         if self.rand_rot_scene and self.training:
