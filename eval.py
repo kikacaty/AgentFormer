@@ -5,6 +5,12 @@ from data.nuscenes_pred_split import get_nuscenes_pred_split
 from data.ethucy_split import get_ethucy_split
 from utils.utils import print_log, AverageMeter, isfile, print_log, AverageMeter, isfile, isfolder, find_unique_common_from_lists, load_list_from_folder, load_txt_file
 
+import cv2
+import glob
+from data.map import GeometricMap
+
+import pickle
+
 from pdb import set_trace as st
 
 
@@ -41,6 +47,18 @@ def compute_MR(pred_arr, gt_arr, tolerance=2):
     mr /= len(pred_arr)
     return mr/12.
 
+def compute_ORR(pred_arr, vis_map):
+    mr = 0.0
+    for pred in pred_arr:
+        map_points = vis_map.to_map_points(pred).round().astype(int)     # samples x frames x 3
+        orig_shape = map_points.shape[:-1]
+        map_points = map_points.reshape(-1,2)
+        pixels = np.array([vis_map.data.transpose(1,2,0)[x[0],x[1]] for x in map_points]).reshape([*orig_shape,3])
+        cur_rates = (pixels == [255, 240, 243]).sum(1)[:,0]         # samples 
+        mr += cur_rates.mean(axis=0)                         # (1, )
+    mr /= len(pred_arr)
+    return mr/12.
+
 
 def align_gt(pred, gt):
     frame_from_data = pred[0, :, 0].astype('int64').tolist()
@@ -70,14 +88,29 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
         'ADE': compute_ADE,
         'FDE': compute_FDE,
         'MissRate': compute_MR,
+        'OffRoadRate': compute_ORR,
     }
 
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
 
     seq_list, num_seq = load_list_from_folder(gt_dir)
     # print('\n\nnumber of sequences to evaluate is %d' % len(seq_eval))
+
+    d_stats_file = 'results/nuscenes_5sample_agentformer/results/epoch_0035/test/pgd_step_fix_init_dds_0.01_dk_0.05/dist.pkl'
+    with open(d_stats_file, 'rb') as reader:
+        d_stats = pickle.load(reader)
+
     for seq_name in seq_eval:
         # load GT raw data
+        map_vis_file = f'{data_root}/map_0.1/vis_{seq_name}.png'
+        map_meta_file = f'{data_root}/map_0.1/meta_{seq_name}.txt'
+        scene_vis_map = np.transpose(cv2.cvtColor(cv2.imread(map_vis_file), cv2.COLOR_BGR2RGB), (2, 0, 1))
+        meta = np.loadtxt(map_meta_file)
+        map_origin = meta[:2]
+        map_scale = scale = meta[2]
+        homography = np.array([[scale, 0., 0.], [0., scale, 0.], [0., 0., scale]])
+        scene_vis_map = GeometricMap(scene_vis_map, homography, map_origin)
+
         gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name+'.txt'))
         gt_raw = []
         for line_data in gt_data:
@@ -89,6 +122,12 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
         data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))    
             
         for data_file in data_filelist:      # each example e.g., seq_0001 - frame_000009
+            
+            if exclude_adv:
+                d_id = seq_name+'/'+data_file.split('/')[-1]
+                dist = d_stats[d_id].min()
+                # if dist > 50: continue
+            
             # for reconsutrction or deterministic
             if isfile(data_file):
                 all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')        # (frames x agents) x 4
@@ -126,7 +165,10 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
             """compute stats"""
             for stats_name, meter in stats_meter.items():
                 func = stats_func[stats_name]
-                value = func(agent_traj, gt_traj)
+                if stats_name == 'OffRoadRate':
+                    value = func(agent_traj, scene_vis_map)
+                else:
+                    value = func(agent_traj, gt_traj)
                 meter.update(value, n=len(agent_traj))
 
             # stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])

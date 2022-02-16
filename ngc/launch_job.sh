@@ -9,8 +9,7 @@ helpFunction()
    echo -e "\t-t Running time, e.g. 48h"
    exit 1 # Exit script after printing help
 }
-
-while getopts "a:n:s:" opt
+while getopts "a:s:" opt
 do
    case "$opt" in
       n ) NAME="$OPTARG" ;;
@@ -28,8 +27,7 @@ MODE="${MODE:-"NORMAL"}"
 STEP="${STEP:-"1"}"
 INSTANCE="${INSTANCE:-"16g"}"
 RUNTIME="${RUNTIME:-"48h"}"
-
-
+NAME="adv-agentformer.step-${STEP}-${ATTACKER}-${MODE}"
 if [ "$INSTANCE" == "32g" ];then
     INS="dgx1v.32g.1.norm"
 else
@@ -41,29 +39,31 @@ fi
 #    echo "Some or all of the parameters are empty";
 #    helpFunction
 # fi
-
 # Begin script in case all parameters are correct
+
 echo "mode: $MODE"
 echo "step: $STEP"
 echo "instance: $INS"
-
+echo "name: $NAME"
 
 WS_ID=yulong-avg # replace with your workspace ID
 WS_MOUNT_POINT=/workspace/adv_pred/
 DS_MOUNT_POINT=/workspace/adv_pred/datasets/
 RESULT_DIR=/workspace/adv_pred/results/
-# CMD="cd $WS_MOUNT_POINT; pip install -e .; pip install numpy==1.21.4;\
-# python scripts/train_l5kit.py --config_file=/tbsim-ws/tbsim/experiments/templates/l5_raster_plan.json --output_dir $RESULT_DIR --name $NAME --dataset $DS_MOUNT_POINT/lyft_prediction --remove_exp_dir \
-# & tensorboard --logdir $RESULT_DIR --bind_all"
+
 
 if [ "$MODE" == "MIX" ]; 
 then 
-CMD="cd $WS_MOUNT_POINT; pip install -r requirements.txt;\
+CMD="cd $WS_MOUNT_POINT; \
+pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html;\
+pip install -r requirements.txt;\
 pip install wandb; wandb login 66e53af18f876c79bad2f274a73b1c8026ced2ef; \
 export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; \
 python adv_train.py --cfg nuscenes_5sample_agentformer_pre --adv_cfg $ATTACKER --pgd_step $STEP --mix"
 else 
-CMD="cd $WS_MOUNT_POINT; pip install -e .; pip install numpy==1.21.4;\
+CMD="cd $WS_MOUNT_POINT; \
+pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html;\
+pip install -r requirements.txt;\
 pip install wandb; wandb login 66e53af18f876c79bad2f274a73b1c8026ced2ef; \
 export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; \
 python adv_train.py --cfg nuscenes_5sample_agentformer_pre --adv_cfg $ATTACKER --pgd_step $STEP"
@@ -74,8 +74,8 @@ echo "$CMD"
 ngc batch run \
  --instance "$INS" \
  --name "$NAME" \
- --image "nvcr.io/nvidia/pytorch:22.01-py3" \
- --workspace "$WS_ID":"$WS_MOUNT_POINT" \
+ --image "nvidia/pytorch:20.02-py3" \
+ --workspace yulong-avg:/workspace \
  --result "$RESULT_DIR" \
  --port 8888 \
  --commandline "$CMD"

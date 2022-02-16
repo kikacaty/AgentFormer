@@ -23,4 +23,4 @@ exp_name: pgd_step_search
 ttl_frame: []
 
 # ================= Eval =================
-exclude_adv: True
+exclude_adv: False

@@ -24,6 +24,8 @@ from pdb import set_trace as st
 from utils.attack_utils.constraint import DynamicModel, DynamicStats
 from utils.attack_utils.attack import Attacker
 
+import pickle
+
 import re
 
 from eval import evaluate
@@ -98,7 +100,7 @@ def save_prediction(pred, data, suffix, save_dir):
         np.savetxt(fname, pred_arr, fmt="%.3f")
     return pred_num
 
-def attack_model(generator, save_dir, cfg):
+def attack_model(model, generator, save_dir, cfg):
     total_num_pred = 0
     total_num_frame = 0
     dist_stats = torch.zeros(6)
@@ -107,6 +109,10 @@ def attack_model(generator, save_dir, cfg):
     pbar = tqdm(total=generator.num_total_samples)
 
     eval_scenes = {}
+    dist_label = {}
+
+    device = model.device
+    adv_cfg = cfg.adv_cfg
 
     while not generator.is_epoch_end():
         data = generator()
@@ -173,6 +179,10 @@ def attack_model(generator, save_dir, cfg):
             continue
         if args.clean_results:
             continue
+
+
+        diff = np.array([((data['pre_motion_3D'][0]-x)* cfg.traj_scale).norm(dim=-1).min() for x in data['pre_motion_3D'][1:]])
+        dist_label[f"{data['seq']}/frame_{int(data['frame']):06d}"] = diff
 
 
         with torch.no_grad():
@@ -334,7 +344,6 @@ def attack_model(generator, save_dir, cfg):
             plt.savefig(os.path.join(vis_dir, "%03d_adv.png" % total_num_frame))
             plt.close('all')
 
-
         total_num_pred += num_pred
         total_num_frame += 1
         if len(adv_cfg.ttl_frame) > 0 and adv_cfg.ttl_frame[0] < total_num_frame:
@@ -351,40 +360,11 @@ def attack_model(generator, save_dir, cfg):
             'test': 9041
         }
         # assert total_num_pred == scene_num[generator.split]
+    outname = f'{save_dir}/dist.pkl'
+    with open(outname, 'wb') as writer:
+        pickle.dump(dist_label, writer)
 
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', default=None)
-    parser.add_argument('--data_eval', default='test')
-    parser.add_argument('--epochs', default=None)
-    parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--cached', action='store_true', default=False)
-    parser.add_argument('--cleanup', action='store_true', default=False)
-
-    parser.add_argument('--vis', action='store_true', default=False)
-    parser.add_argument('--eval', action='store_true', default=False)
-    parser.add_argument('--clean_results', action='store_true', default=False)
-
-    parser.add_argument('--ngc', action='store_true', default=False)
-
-    # ================= Attack args =================
-    parser.add_argument('--adv_cfg', default='base')
-
-
-
-
-
-    args = parser.parse_args()
-
-    """ setup """
-    cfg = Config(args.cfg)
-    adv_cfg = AdvConfig(args.adv_cfg)
-    adv_cfg.sample_k = cfg.sample_k
-    adv_cfg.traj_scale = cfg.traj_scale
-
-    if args.ngc:
-        cfg.result_dir = '/workspace/results'
+def attack(args, cfg, adv_cfg):
 
     if args.epochs is None:
         epochs = [cfg.get_last_epoch()]
@@ -440,7 +420,7 @@ if __name__ == '__main__':
                 save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'; mkdir_if_missing(save_dir)
                 eval_dir = f'{save_dir}/samples_baseline'
                 if not args.cached:
-                    attack_model(generator, save_dir, cfg)
+                    attack_model(model, generator, save_dir, cfg)
 
                 stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
                 results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
@@ -455,5 +435,43 @@ if __name__ == '__main__':
                 # remove eval folder to save disk space
                 if args.cleanup:
                     shutil.rmtree(save_dir)
+
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cfg', default=None)
+    parser.add_argument('--data_eval', default='test')
+    parser.add_argument('--epochs', default=None)
+    parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--cached', action='store_true', default=False)
+    parser.add_argument('--cleanup', action='store_true', default=False)
+
+    parser.add_argument('--vis', action='store_true', default=False)
+    parser.add_argument('--eval', action='store_true', default=False)
+    parser.add_argument('--clean_results', action='store_true', default=False)
+
+    # ================= Attack args =================
+    parser.add_argument('--adv_cfg', default='base')
+    parser.add_argument('--sweep', action='store_true', default=False)
+
+
+    args = parser.parse_args()
+
+    """ setup """
+    cfg = Config(args.cfg)
+    adv_cfg = AdvConfig(args.adv_cfg)
+    adv_cfg.sample_k = cfg.sample_k
+    adv_cfg.traj_scale = cfg.traj_scale
+    if adv_cfg.mode == 'opt':
+        fix_name = 'end' if adv_cfg.fix_t == -1 else 'start'
+        exp_name = f'{adv_cfg.mode}_{fix_name}_dds_{adv_cfg.step_size_dds}_dk_{adv_cfg.step_size_dk}'
+    else:
+        exp_name = f'{adv_cfg.mode}_step_size_{adv_cfg.step_size}'
+
+    cfg.adv_cfg = adv_cfg
+
+    attack(args, cfg, adv_cfg)
 
 

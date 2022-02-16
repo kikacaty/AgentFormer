@@ -37,3 +37,8 @@ def lateral_mean_displacements(fut_motion, pred_motion, pre_motion):
 
 def final_distances(fut_motion, pred_motion):
     return (fut_motion - pred_motion).norm(dim=-1)[-1,:].mean()
+
+def compute_kld(target_q_z_dist, pred_q_z_dist):
+    loss_unweighted = pred_q_z_dist.kl(target_q_z_dist).sum()
+    loss_unweighted = loss_unweighted.clamp_max_(10)
+    return loss_unweighted

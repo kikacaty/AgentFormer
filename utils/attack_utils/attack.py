@@ -33,29 +33,44 @@ class Attacker(object):
         device = cfg.device
         sample_k = cfg.sample_k
         fix_t = cfg.fix_t
-        assert (fix_t == 0 or fix_t == -1)
-        target_id = cfg.target_id
+        target_agent = cfg.target_agent
+        adv_agent = cfg.adv_agent
 
 
         model.set_data(data)
 
-        orig_pre_motion = model.data['pre_motion'].clone().detach()
+        model.inference(mode='infer', sample_num=sample_k, need_weights=False)
 
-        dynamic_model = DynamicModel(orig_pre_motion.cpu().data[:,0,:], device=device, cfg = cfg)
+        orig_q_z_dist = model.data['q_z_dist_dlow'].copy()
 
-        perturb_mask = torch.zeros_like(model.data['pre_motion'])
-        # fixed current position
-        perturb_mask[:,0,:] = 1
+        orig_pre_motion = model.data['pre_motion'].clone().detach() # frame, na, xy
+
+        dynamic_model = DynamicModel(orig_pre_motion.data, device=device, cfg = cfg)
+
+        if adv_agent.all:
+            adv_motion_mask = torch.ones_like(model.data['pre_motion'])
+            adv_heading_mask = torch.ones_like(model.data['heading'])
+        else:
+            adv_motion_mask = torch.zeros_like(model.data['pre_motion'])
+            # fixed current position
+            adv_motion_mask[:,adv_agent.idx,:] = 1
+
+            adv_heading_mask = torch.zeros_like(model.data['heading'])
+            # fixed current position
+            adv_heading_mask[adv_agent.idx] = 1
 
         for i in range(self.max_iters+1):
 
-            adv_motion, heading, _ = dynamic_model.build_motion()
+            adv_motion, adv_heading, _ = dynamic_model.build_motion()
             update_adv_pre_motion = orig_pre_motion.clone()
-            update_adv_pre_motion[:,0,:] = adv_motion
-            model.data['pre_motion'] = update_adv_pre_motion
-            model.data['heading'][0] = heading
+            # update_adv_pre_motion[:,0,:] = adv_motion
+            headings = model.data['heading'].clone().detach()
+            # headings[0] = heading
+
+            update_adv_pre_motion = update_adv_pre_motion * (1-adv_motion_mask) + adv_motion_mask * adv_motion
+            headings = headings * (1 - adv_heading_mask) + adv_heading_mask * adv_heading
             
-            model.update_data(data)
+            model.update_data(data, pre_motion=update_adv_pre_motion, heading=headings)
 
             recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
 
@@ -67,14 +82,18 @@ class Attacker(object):
                 self.sample_motion_list.append(sample_motion_3D.detach().clone())
                 self.recon_motion_list.append(recon_motion_3D.detach().clone())
 
-            if target_id == -1:
-                target_fut_motion = model.data['fut_motion'].transpose(0, 1)[1:,:,:]
-                target_pred_motion = sample_motion_3D[0][1:,:,:]
-                target_pre_motion = orig_pre_motion.detach().transpose(0, 1)[1:,:,:]
+            if target_agent.all:
+                target_fut_motion = model.data['fut_motion'].transpose(0, 1)
+                target_pred_motion = sample_motion_3D[0]
+                target_pre_motion = orig_pre_motion.detach().transpose(0, 1)
+                if target_agent.other:
+                    target_fut_motion = target_fut_motion[torch.arange(target_fut_motion.size(0))!=adv_agent.idx]
+                    target_pred_motion = target_pred_motion[torch.arange(target_pred_motion.size(0))!=adv_agent.idx]
+                    target_pre_motion = target_pre_motion[torch.arange(target_pre_motion.size(0))!=adv_agent.idx]
             else:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
-                target_fut_motion = model.data['fut_motion'].transpose(0, 1)[target_id,:,:].unsqueeze(0)
-                target_pred_motion = sample_motion_3D[0][target_id].unsqueeze(0)
-                target_pre_motion = orig_pre_motion.detach().transpose(0, 1)[target_id,:,:].unsqueeze(0)
+                target_fut_motion = model.data['fut_motion'].transpose(0, 1)[target_agent.idx].unsqueeze(0)
+                target_pred_motion = sample_motion_3D[0][target_agent.idx].unsqueeze(0)
+                target_pre_motion = orig_pre_motion.detach().transpose(0, 1)[target_agent.idx].unsqueeze(0)
             # target_pred_motion = recon_motion_3D.contiguous()[1:]
             model.zero_grad()
 
@@ -83,6 +102,7 @@ class Attacker(object):
             loss_lon = longitudal_mean_displacements(target_fut_motion, target_pred_motion, target_pre_motion)
             loss_lat = lateral_mean_displacements(target_fut_motion, target_pred_motion, target_pre_motion)
             loss_col = collision_loss(update_adv_pre_motion, adv_id=0)
+            loss_q_z = compute_kld(orig_q_z_dist, model.data['q_z_dist_dlow'])
 
             loss_dict = {
                 "ADE": loss_mean_distance.item(),
@@ -103,6 +123,7 @@ class Attacker(object):
         # print(dynamic_model.perturbation)
 
         model.data['pre_motion'].detach_()
+        model.data['heading'].detach_()
 
     # searching constraints
     def perturb_search(self, data):
@@ -130,10 +151,10 @@ class Attacker(object):
             adv_motion, heading, _ = dynamic_model.build_motion()
             update_adv_pre_motion = orig_pre_motion.clone()
             update_adv_pre_motion[:,0,:] = adv_motion
-            model.data['pre_motion'] = update_adv_pre_motion
-            model.data['heading'][0] = heading
+            headings = model.data['heading'].clone().detach()
+            headings[0] = heading
             
-            model.update_data(data)
+            model.update_data(data, pre_motion=update_adv_pre_motion, heading=headings)
 
             recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
 
@@ -206,10 +227,10 @@ class Attacker(object):
             adv_motion, heading, loss_motion, loss_traj = dynamic_model.build_motion()
             update_adv_pre_motion = orig_pre_motion.clone()
             update_adv_pre_motion[:,0,:] = update_adv_pre_motion[fix_t,0,:] + (adv_motion - adv_motion[fix_t,:])
-            model.data['pre_motion'] = update_adv_pre_motion
-            model.data['heading'][0] = heading
+            headings = model.data['heading'].clone().detach()
+            headings[0] = heading
             
-            model.update_data(data)
+            model.update_data(data, pre_motion=update_adv_pre_motion, heading=headings)
 
             recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
 
@@ -237,6 +258,8 @@ class Attacker(object):
             loss_lon = longitudal_mean_displacements(target_fut_motion, target_pred_motion, target_pre_motion)
             loss_lat = lateral_mean_displacements(target_fut_motion, target_pred_motion, target_pre_motion)
             loss_col = collision_loss(update_adv_pre_motion, adv_id=0)
+
+            st()
 
             loss_dict = {
                 "ADE": loss_mean_distance.item(),

@@ -227,8 +227,8 @@ class DynamicModel(object):
             dx[-1] = dx[-2] # assume to be the same
             return dx/self.dt # scaling t
 
-        dx = d(xy[:,0])
-        dy = d(xy[:,1])
+        dx = d(xy[:,:,0])
+        dy = d(xy[:,:,1])
         
         ddx = d(dx)
         ddy = d(dy)

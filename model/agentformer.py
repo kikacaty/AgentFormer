@@ -533,6 +533,8 @@ class AgentFormer(nn.Module):
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   # normalize per scene
 
+        self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
+
         # agent maps is fixed when fixed current location
         # if self.use_map:
         #     scene_map = data['scene_map']
@@ -544,7 +546,7 @@ class AgentFormer(nn.Module):
         #         patch_size = [50, 10, 50, 90]
         #         rot = -np.array(data['heading'])  * (180 / np.pi)
         #     self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
-        
+
     def update_data(self, data, pre_motion=None, heading=None):
         device = self.device
         if self.training and len(data['pre_motion_3D']) > self.max_train_agent:

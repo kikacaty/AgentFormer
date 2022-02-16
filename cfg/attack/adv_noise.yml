@@ -3,8 +3,19 @@ mode: noise
 
 use_k: True
 
-fix_t: -1
-target_id: -1
+fix_t:
+  value: False
+  t_idx: -1
+
+target_agent:
+  all: True
+  other: True
+  idx: 0
+
+adv_agent:
+  all: False
+  idx: 0
+
 noise: 0.01
 
 iters: [10, 20, 30, 40, 50]
@@ -18,9 +29,9 @@ collision_reg: 0.0
 motion_reg: 0.1
 traj_reg: 0.5
 
-debug: False
-exp_name: pgd_step_noise
-ttl_frame: []
+debug: True
+exp_name: test_noise_new
+ttl_frame: [100]
 
 # ================= Eval =================
 exclude_adv: True
