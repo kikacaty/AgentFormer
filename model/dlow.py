@@ -7,6 +7,8 @@ from .common.mlp import MLP
 from .common.dist import *
 from . import model_lib
 
+import os
+
 from pdb import set_trace as st
 
 
@@ -68,6 +70,10 @@ class DLow(nn.Module):
         self.loss_names = list(self.loss_cfg.keys())
 
         pred_cfg = Config(cfg.pred_cfg, tmp=False, create_dirs=False)
+
+        if os.path.exists('%s/%s' % (pred_cfg.cfg_dir, cfg.exp_name)):
+            pred_cfg.update_dirs(cfg.exp_name)
+
         pred_model = model_lib.model_dict[pred_cfg.model_id](pred_cfg)
         self.pred_model_dim = pred_cfg.tf_model_dim
         if cfg.pred_epoch > 0:

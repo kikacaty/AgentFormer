@@ -50,19 +50,6 @@ def get_adv_model_prediction(data, sample_k, model, adv_cfg=None):
 
     attacker = Attacker(model, adv_cfg)
     attacker.perturb(data)
-    # if adv_cfg.mode == 'opt':
-    #     attacker.perturb_opt(data)
-    # elif adv_cfg.mode == 'noise' or adv_cfg.mode == 'search':
-    #     attacker.perturb_noise(data)
-    # else:
-    #     raise NotImplementedError("Unknow attack mode!")
-
-    # adv_recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
-
-    # adv_sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
-    # adv_sample_motion_3D = adv_sample_motion_3D.transpose(0, 1).contiguous()
-
-    # return adv_recon_motion_3D, adv_sample_motion_3D
 
     return attacker.recon_motion_list, attacker.sample_motion_list
 
@@ -256,6 +243,9 @@ def attack_model(model, generator, save_dir, cfg, args):
             save_prediction(adv_recon_motion_3D, data, '', adv_recon_dir, cfg=cfg)        # save adv recon
             save_past(model.data['pre_motion'].cpu().numpy(), data, '', adv_past_dir, cfg=cfg)
 
+
+        # eval
+        
 
         # visualization
         if args.vis:

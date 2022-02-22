@@ -27,7 +27,7 @@ pred_epoch: 100
 qnet_mlp: [512, 256]
 share_eps: true
 train_w_mean: true
-
+exp_name: None
 # ------------------- VAE-------------------------
 
 nz                           : 32
