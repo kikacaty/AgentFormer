@@ -113,17 +113,11 @@ def train(epoch, args):
             model.set_data(data)
 
             gen_adv = True
-            if args.mix:
-                gen_adv = np.random.random() > 0.5
+            gen_adv = np.random.random() > args.mix
 
             if gen_adv:
                 model.eval()
-                if adv_cfg.mode == 'opt':
-                    attacker.perturb_opt_train(data)
-                elif adv_cfg.mode == 'noise':
-                    attacker.perturb_noise_train(data)
-                else:
-                    raise NotImplementedError("Unknow attack mode!")
+                attacker.perturb_train(data)
 
 
             model.train()
@@ -165,21 +159,35 @@ if __name__ == '__main__':
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--mix', action='store_true', default=False)
+    parser.add_argument('--mix', type=float, default=0)
     parser.add_argument('--free', action='store_true', default=False)
     parser.add_argument('--pgd_step', type=int, default=1)
+    parser.add_argument('--full', action='store_true', default=False)
 
     args = parser.parse_args()
 
     """ setup """
     cfg = Config(args.cfg, args.tmp, create_dirs=True)
     adv_cfg = AdvConfig(args.adv_cfg, args.tmp, create_dirs=True)
-    adv_cfg.traj_scale = cfg.traj_scale
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if torch.cuda.is_available() else torch.device('cpu')
     if torch.cuda.is_available(): torch.cuda.set_device(args.gpu)
+    
+    
     adv_cfg.device = device
+    adv_cfg.traj_scale = cfg.traj_scale
+
+    if args.full:
+        adv_cfg.target_agent.all = True
+        adv_cfg.target_agent.other = False
+        adv_cfg.adv_agent.all = True
+    else:
+        adv_cfg.target_agent.all = True
+        adv_cfg.target_agent.other = True
+        adv_cfg.adv_agent.all = False
+
+    adv_cfg.iters = [args.pgd_step]
 
     # set up wandb
     wandb.init(project="robust_pred", entity="yulongc")
@@ -189,9 +197,10 @@ if __name__ == '__main__':
         'free': args.free,
         'adv mode': adv_cfg.mode
     }
-    adv_cfg.iters = [args.pgd_step]
 
-    exp_name = f'pgd_step_{args.pgd_step}_mix_{args.mix}_free_{args.free}_adv_{adv_cfg.mode}_single'
+    adv_agent = 'full' if args.full else 'single'
+
+    exp_name = f'pgd_step_{args.pgd_step}_mix_{args.mix}_free_{args.free}_adv_{adv_cfg.mode}_{adv_agent}'
     wandb.run.name = exp_name
     wandb.run.save()
     cfg.update_dirs(exp_name)
@@ -204,9 +213,6 @@ if __name__ == '__main__':
     print_log("cudnn version : {}".format(torch.backends.cudnn.version()), log)
     tb_logger = SummaryWriter(cfg.tb_dir)
     tb_ind = 0
-
-
-    
 
 
     """ data """

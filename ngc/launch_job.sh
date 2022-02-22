@@ -27,7 +27,7 @@ MODE="${MODE:-"NORMAL"}"
 STEP="${STEP:-"1"}"
 INSTANCE="${INSTANCE:-"16g"}"
 RUNTIME="${RUNTIME:-"48h"}"
-NAME="adv-agentformer.step-${STEP}-${ATTACKER}-${MODE}"
+NAME="step-${STEP}-${ATTACKER}-${MODE} ml.model.adv_agentformer"
 if [ "$INSTANCE" == "32g" ];then
     INS="dgx1v.32g.1.norm"
 else
@@ -59,7 +59,7 @@ pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f htt
 pip install -r requirements.txt;\
 pip install wandb; wandb login 66e53af18f876c79bad2f274a73b1c8026ced2ef; \
 export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; \
-python adv_train.py --cfg nuscenes_5sample_agentformer_pre --adv_cfg $ATTACKER --pgd_step $STEP --mix"
+python adv_train.py --cfg nuscenes_5sample_agentformer_pre --adv_cfg $ATTACKER --pgd_step $STEP --mix 0.5"
 else 
 CMD="cd $WS_MOUNT_POINT; \
 pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html;\
@@ -76,6 +76,6 @@ ngc batch run \
  --name "$NAME" \
  --image "nvidia/pytorch:20.02-py3" \
  --workspace yulong-avg:/workspace \
- --result "$RESULT_DIR" \
+ --result /result \
  --port 8888 \
  --commandline "$CMD"

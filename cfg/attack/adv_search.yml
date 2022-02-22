@@ -3,8 +3,19 @@ mode: search
 
 use_k: True
 
-fix_t: -1
-target_id: -1
+fix_t:
+  value: True
+  t_idx: -1
+
+target_agent:
+  all: True
+  other: True
+  idx: 0
+
+adv_agent:
+  all: False
+  idx: 0
+
 noise: 0.01
 
 iters: [10, 20, 30, 40, 50]
@@ -14,13 +25,15 @@ step_size: 5.0e-2
 step_size_dds: 1.0e-1
 step_size_dh: 1.0e-1
 step_size_dk: 5.0e-2
+
+
 collision_reg: 0.0
 motion_reg: 0.1
 traj_reg: 0.5
 
 debug: False
-exp_name: pgd_step_search
+exp_name: test_noise_new
 ttl_frame: []
 
 # ================= Eval =================
-exclude_adv: False
+exclude_adv: True

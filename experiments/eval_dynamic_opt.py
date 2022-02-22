@@ -30,115 +30,14 @@ import re
 
 from eval import evaluate
 
-def get_model_prediction(data, sample_k, model):
-    model.set_data(data)
-    recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
-    sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
-    sample_motion_3D = sample_motion_3D.transpose(0, 1).contiguous()
-    return recon_motion_3D, sample_motion_3D
-
-""" Attack """
-def cal_dist(gt_motion):
-    diff = gt_motion[1:,:,:] - gt_motion[0,:,:].tile(gt_motion.size(0)-1,1,1)
-    avg_dist = diff.norm(dim=2).mean(axis=1)
-    return avg_dist
+from attack import save_past, save_prediction, get_model_prediction
     
 
 
-def get_adv_model_prediction(data, sample_k, model, adv_cfg=None):
-    model.set_data(data)
-
-    attacker = Attacker(model, adv_cfg)
-    attacker.perturb(data)
-    # if adv_cfg.mode == 'opt':
-    #     attacker.perturb_opt(data)
-    # elif adv_cfg.mode == 'noise' or adv_cfg.mode == 'search':
-    #     attacker.perturb_noise(data)
-    # else:
-    #     raise NotImplementedError("Unknow attack mode!")
-
-    # adv_recon_motion_3D, _ = model.inference(mode='recon', sample_num=sample_k)
-
-    # adv_sample_motion_3D, data = model.inference(mode='infer', sample_num=sample_k, need_weights=False)
-    # adv_sample_motion_3D = adv_sample_motion_3D.transpose(0, 1).contiguous()
-
-    # return adv_recon_motion_3D, adv_sample_motion_3D
-
-    return attacker.recon_motion_list, attacker.sample_motion_list
-
-def save_prediction(pred, data, suffix, save_dir, cfg=None):
-    pred_num = 0
-    pred_arr = []
-    fut_data, seq_name, frame, valid_id, pred_mask = data['fut_data'], data['seq'], data['frame'], data['valid_id'], data['pred_mask']
-
-    for i in range(len(valid_id)):    # number of agents
-        identity = valid_id[i]
-        if pred_mask is not None and pred_mask[i] != 1.0:
-            continue
-
-        """future frames"""
-        for j in range(cfg.future_frames):
-            cur_data = fut_data[j]
-            if len(cur_data) > 0 and identity in cur_data[:, 1]:
-                data = cur_data[cur_data[:, 1] == identity].squeeze()
-            else:
-                data = most_recent_data.copy()
-                data[0] = frame + j + 1
-            data[[13, 15]] = pred[i, j].cpu().numpy()   # [13, 15] corresponds to 2D pos
-            most_recent_data = data.copy()
-            pred_arr.append(data)
-        pred_num += 1
-
-    if len(pred_arr) > 0:
-        pred_arr = np.vstack(pred_arr)
-        indices = [0, 1, 13, 15]            # frame, ID, x, z (remove y which is the height)
-        pred_arr = pred_arr[:, indices]
-        # save results
-        fname = f'{save_dir}/{seq_name}/frame_{int(frame):06d}{suffix}.txt'
-        mkdir_if_missing(fname)
-        np.savetxt(fname, pred_arr, fmt="%.3f")
-    return pred_num
-
-def save_past(pre_motion, data, suffix, save_dir, cfg=None):
-    pred_num = 0
-    pred_arr = []
-    fut_data, seq_name, frame, valid_id, pred_mask = data['pre_data'], data['seq'], data['frame'], data['valid_id'], data['pred_mask']
-
-    pre_motion = pre_motion.clone().transpose(0,1)
-
-    for i in range(len(valid_id)):    # number of agents
-        identity = valid_id[i]
-        if pred_mask is not None and pred_mask[i] != 1.0:
-            continue
-
-        """pre frames"""
-        for j in range(cfg.past_frames):
-            cur_data = fut_data[j]
-            if len(cur_data) > 0 and identity in cur_data[:, 1]:
-                data = cur_data[cur_data[:, 1] == identity].squeeze()
-            else:
-                data = most_recent_data.copy()
-                data[0] = frame + j + 1
-            data[[13, 15]] = pre_motion[i, j].cpu().numpy()   # [13, 15] corresponds to 2D pos
-            most_recent_data = data.copy()
-            pred_arr.append(data)
-        pred_num += 1
-
-    if len(pred_arr) > 0:
-        pred_arr = np.vstack(pred_arr)
-        indices = [0, 1, 13, 15]            # frame, ID, x, z (remove y which is the height)
-        pred_arr = pred_arr[:, indices]
-        # save results
-        fname = f'{save_dir}/{seq_name}/frame_{int(frame):06d}{suffix}.txt'
-        mkdir_if_missing(fname)
-        np.savetxt(fname, pred_arr, fmt="%.3f")
-    return pred_num
 
 def attack_model(model, generator, save_dir, cfg, args):
     total_num_pred = 0
     total_num_frame = 0
-    dist_stats = torch.zeros(6)
-    dist_cat = torch.tensor([5,6,7,8,9,10],dtype=torch.float)
 
     pbar = tqdm(total=generator.num_total_samples)
 
@@ -155,17 +54,6 @@ def attack_model(model, generator, save_dir, cfg, args):
             continue
         if data['pred_mask'].sum() < 2:
             skip = True
-
-        # result_log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-        # with open(result_log_file,'r') as f:
-        #     result_log = f.read()
-            
-        #     results = re.findall(r"forecasting frame %06d .+ ADE: (\d+\.\d+)"%(data['frame']+1), result_log)
-        #     results = float(results[0])
-            # if results > 0.1:
-            #     continue 
-        
-        # seq_name, frame = data['seq'], int(data['frame'])
 
         # ================= Start filtering input traces for attack =================
 
@@ -233,11 +121,20 @@ def attack_model(model, generator, save_dir, cfg, args):
             save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir, cfg=cfg)
         save_prediction(recon_motion_3D, data, '', recon_dir, cfg=cfg)        # save recon
         num_pred = save_prediction(gt_motion_3D, data, '', gt_dir, cfg=cfg)   # save gt
-        save_past(model.data['pre_motion'].cpu().numpy(), data, '', past_dir, cfg=cfg)
+        save_past(model.data['pre_motion'], data, '', past_dir, cfg=cfg)
 
 
         # generate adv
-        adv_recon_motion_list, adv_sample_motion_list = get_adv_model_prediction(data, cfg.sample_k, model, adv_cfg=adv_cfg)
+        model.set_data(data)
+
+        dynamic_model = DynamicModel(model.data['pre_motion'].clone().detach().data, device=adv_cfg.device, cfg = adv_cfg)
+        if dynamic_model.check_constraints():
+            continue
+        
+        attacker = Attacker(model, adv_cfg)
+        attacker.perturb(data)
+
+        adv_recon_motion_list, adv_sample_motion_list = attacker.recon_motion_list, attacker.sample_motion_list
         
         # adv_agent_pre_path = np.array([(model.data['pre_vel'][:i,0,:].sum(axis=0) + model.data['pre_motion'][0,0,:]).cpu().numpy() for i in range(len(model.data['pre_vel'])+1)])
         adv_agent_pre_path = model.data['pre_motion'][:,0,:].cpu().numpy()
@@ -249,14 +146,15 @@ def attack_model(model, generator, save_dir, cfg, args):
 
             adv_recon_dir = os.path.join(save_dir, f'recon_adv/step_{adv_cfg.iters[idx]}'); mkdir_if_missing(adv_recon_dir)
             adv_sample_dir = os.path.join(save_dir, f'samples_adv/step_{adv_cfg.iters[idx]}'); mkdir_if_missing(adv_sample_dir)
-            adv_past_dir = os.path.join(save_dir, 'past_adv'); mkdir_if_missing(adv_past_dir)
 
             for i in range(adv_sample_motion_3D.shape[0]):
                 save_prediction(adv_sample_motion_3D[i], data, f'/sample_{i:03d}', adv_sample_dir, cfg=cfg)
             save_prediction(adv_recon_motion_3D, data, '', adv_recon_dir, cfg=cfg)        # save adv recon
-            save_past(model.data['pre_motion'].cpu().numpy(), data, '', adv_past_dir, cfg=cfg)
+        
+        adv_past_dir = os.path.join(save_dir, 'past_adv'); mkdir_if_missing(adv_past_dir)
+        save_past(model.data['pre_motion'], data, '', adv_past_dir, cfg=cfg)
 
-
+        st()
         # visualization
         if args.vis:
 
@@ -418,65 +316,38 @@ def attack(args, cfg, adv_cfg):
 
     adv_cfg.device = device
 
-    if args.eval:
-        for epoch in epochs:
-            data_splits = [args.data_eval]
-            for split in data_splits:  
-                results = []
-                save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'
-                eval_dir = f'{save_dir}/samples_baseline'
-                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
-                results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
-                for iters in adv_cfg.iters:
-                    adv_eval_dir = f'{save_dir}/samples_adv/step_{iters}'
-                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv)
-                    results.append(f'{iters}\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
-        print('iters\t'+'\t'.join([f'{x}' for x, y in stats_meter.items()]))
-        print('\n'.join(results))
+    # enable grad for pgd attack
+    # torch.set_grad_enabled(False)
+    global log
+    log = open(os.path.join(cfg.log_dir, 'log_test.txt'), 'w')
 
-    else:
-        # enable grad for pgd attack
-        # torch.set_grad_enabled(False)
-        global log
-        log = open(os.path.join(cfg.log_dir, 'log_test.txt'), 'w')
+    for epoch in epochs:
+        prepare_seed(cfg.seed)
+        """ model """
+        if not args.cached:
+            model_id = cfg.get('model_id', 'gnnv1')
+            model = model_dict[model_id](cfg)
+            model.set_device(device)
+            model.eval()
+            if epoch > 0:
+                cp_path = cfg.model_path % epoch
+                print_log(f'loading model model from checkpoint: {cp_path}', log, display=True)
+                model_cp = torch.load(cp_path, map_location='cpu')
+                model.load_state_dict(model_cp['model_dict'], strict=False)
 
-        for epoch in epochs:
-            prepare_seed(cfg.seed)
-            """ model """
+        """ save results and compute metrics """
+        data_splits = [args.data_eval]
+        results = []
+        for split in data_splits:  
+            generator = data_generator(cfg, log, split=split, phase='testing')
+            save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'; mkdir_if_missing(save_dir)
+            eval_dir = f'{save_dir}/samples_baseline'
             if not args.cached:
-                model_id = cfg.get('model_id', 'gnnv1')
-                model = model_dict[model_id](cfg)
-                model.set_device(device)
-                model.eval()
-                if epoch > 0:
-                    cp_path = cfg.model_path % epoch
-                    print_log(f'loading model model from checkpoint: {cp_path}', log, display=True)
-                    model_cp = torch.load(cp_path, map_location='cpu')
-                    model.load_state_dict(model_cp['model_dict'], strict=False)
+                attack_model(model, generator, save_dir, cfg, args)
 
-            """ save results and compute metrics """
-            data_splits = [args.data_eval]
-            results = []
-            for split in data_splits:  
-                generator = data_generator(cfg, log, split=split, phase='testing')
-                save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'; mkdir_if_missing(save_dir)
-                eval_dir = f'{save_dir}/samples_baseline'
-                if not args.cached:
-                    attack_model(model, generator, save_dir, cfg, args)
-
-                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
-                results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
-
-                for iters in adv_cfg.iters:
-                    adv_eval_dir = f'{save_dir}/samples_adv/step_{iters}'
-                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv)
-                    results.append(f'{iters}\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
-
-                print('iters\t'+'\t'.join([f'{x}' for x, y in stats_meter.items()]))
-                print('\n'.join(results))
-                # remove eval folder to save disk space
-                if args.cleanup:
-                    shutil.rmtree(save_dir)
+            # remove eval folder to save disk space
+            if args.cleanup:
+                shutil.rmtree(save_dir)
 
 
 
@@ -505,7 +376,6 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', default=False)
 
 
-
     args = parser.parse_args()
 
     """ setup """
@@ -513,31 +383,7 @@ if __name__ == '__main__':
     adv_cfg = AdvConfig(args.adv_cfg)
     adv_cfg.sample_k = cfg.sample_k
     adv_cfg.traj_scale = cfg.traj_scale
-
     adv_cfg.debug = args.debug
-
-    step_size_dds, step_size_dk, fix_t, step_size = args.step_size_dds, args.step_size_dk, args.fix_t, args.step_size
-
-    if args.sweep:
-        if adv_cfg.mode == 'opt':
-            adv_cfg.step_size_dds = step_size_dds
-            adv_cfg.step_size_dk = step_size_dk
-            adv_cfg.fix_t.t_idx = fix_t
-            fix_name = 'end' if adv_cfg.fix_t.t_idx == -1 else 'start'
-            exp_name = f'sweeps/{adv_cfg.mode}_{fix_name}_dds_{adv_cfg.step_size_dds}_dk_{adv_cfg.step_size_dk}'
-
-            adv_cfg.exp_name = exp_name
-
-            cfg.adv_cfg = adv_cfg
-
-        else:
-            exp_name = f'sweeps/{adv_cfg.mode}_step_size_{adv_cfg.step_size}'
-            adv_cfg.step_size = step_size
-            adv_cfg.exp_name = exp_name
-
-            cfg.adv_cfg = adv_cfg
-
-    # adv_cfg.exp_name = exp_name
 
     cfg.adv_cfg = adv_cfg
 

@@ -5,5 +5,6 @@ agentformer_models.zip
 out
 .vscode
 wandb/
+debug
 # datasets/nuscenes_pred/label
 # datasets/nuscenes_pred/map_0.1

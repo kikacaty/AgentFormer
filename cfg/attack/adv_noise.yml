@@ -25,13 +25,15 @@ step_size: 5.0e-2
 step_size_dds: 1.0e-1
 step_size_dh: 1.0e-1
 step_size_dk: 5.0e-2
+
+
 collision_reg: 0.0
 motion_reg: 0.1
 traj_reg: 0.5
 
-debug: True
+debug: False
 exp_name: test_noise_new
-ttl_frame: [100]
+ttl_frame: []
 
 # ================= Eval =================
 exclude_adv: True
