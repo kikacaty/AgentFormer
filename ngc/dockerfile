@@ -1,0 +1,17 @@
+FROM nvcr.io/nvidia/pytorch:20.02-py3
+ARG PYTHON_VERSION=3.6
+
+RUN apt-get update
+RUN apt-get install htop -y
+RUN apt-get install screen -y
+
+RUN pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html;
+COPY requirements.txt .
+RUN pip install -r requirements.txt;
+RUN pip install wandb;
+
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Los_Angeles
+
+WORKDIR /workspace/adv_pred/
