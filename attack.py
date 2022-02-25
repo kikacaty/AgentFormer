@@ -13,6 +13,8 @@ from utils.config import Config, AdvConfig
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing
 
+from eval import AverageMeter, compute_ADE, compute_FDE, compute_MR, compute_ORR
+
 from tqdm import tqdm
 
 from matplotlib import collections  as mc
@@ -25,6 +27,8 @@ from utils.attack_utils.constraint import DynamicModel, DynamicStats
 from utils.attack_utils.attack import Attacker
 
 import pickle
+
+import wandb
 
 import re
 
@@ -135,6 +139,16 @@ def attack_model(model, generator, save_dir, cfg, args):
     device = model.device
     adv_cfg = cfg.adv_cfg
 
+    stats_func = {
+        'ADE': compute_ADE,
+        'FDE': compute_FDE,
+        'MissRate': compute_MR,
+        'OffRoadRate': compute_ORR,
+    }
+
+    adv_stats_meter = {x: AverageMeter() for x in stats_func.keys()}
+    stats_meter = {x: AverageMeter() for x in stats_func.keys()}
+
     while not generator.is_epoch_end():
         data = generator()
         skip = False
@@ -220,7 +234,7 @@ def attack_model(model, generator, save_dir, cfg, args):
             save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir, cfg=cfg)
         save_prediction(recon_motion_3D, data, '', recon_dir, cfg=cfg)        # save recon
         num_pred = save_prediction(gt_motion_3D, data, '', gt_dir, cfg=cfg)   # save gt
-        save_past(model.data['pre_motion'].cpu().numpy(), data, '', past_dir, cfg=cfg)
+        save_past(model.data['pre_motion'], data, '', past_dir, cfg=cfg)
 
 
         # generate adv
@@ -241,11 +255,57 @@ def attack_model(model, generator, save_dir, cfg, args):
             for i in range(adv_sample_motion_3D.shape[0]):
                 save_prediction(adv_sample_motion_3D[i], data, f'/sample_{i:03d}', adv_sample_dir, cfg=cfg)
             save_prediction(adv_recon_motion_3D, data, '', adv_recon_dir, cfg=cfg)        # save adv recon
-            save_past(model.data['pre_motion'].cpu().numpy(), data, '', adv_past_dir, cfg=cfg)
+            save_past(model.data['pre_motion'], data, '', adv_past_dir, cfg=cfg)
 
 
         # eval
+        adv_list = [0]
+        scene_vis_map = data['scene_map_vis']
+        agent_traj = []
+        adv_agent_traj = []
+        gt_traj = []
+        for idx in range(adv_sample_motion_3D.shape[1]):
+
+            if idx in adv_list: continue
+
+            # adv_pred_idx = adv_sample_motion_3D[0,idx,:].unsqueeze(0).cpu().numpy()
+            # pred_idx = sample_motion_3D[0,idx,:].unsqueeze(0).cpu().numpy()
+            adv_pred_idx = adv_sample_motion_3D[:,idx,:].cpu().numpy()
+            pred_idx = sample_motion_3D[:,idx,:].cpu().numpy()
+            gt_idx = gt_motion_3D[idx,:].cpu().numpy()
+
+            adv_agent_traj.append(adv_pred_idx)
+            agent_traj.append(pred_idx)
+            gt_traj.append(gt_idx)
+
+        """compute stats"""
+        for stats_name, meter in stats_meter.items():
+            func = stats_func[stats_name]
+            if stats_name == 'OffRoadRate':
+                value = func(agent_traj, scene_vis_map)
+            else:
+                value = func(agent_traj, gt_traj)
+            meter.update(value, n=len(agent_traj))
         
+        for stats_name, meter in adv_stats_meter.items():
+            func = stats_func[stats_name]
+            if stats_name == 'OffRoadRate':
+                value = func(adv_agent_traj, scene_vis_map)
+            else:
+                value = func(adv_agent_traj, gt_traj)
+            meter.update(value, n=len(adv_agent_traj))
+
+        stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
+        adv_stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in adv_stats_meter.items()])
+        print(f'evaluating seq {data["seq"]:s}\norig {stats_str}')
+        print(f'adv {adv_stats_str}')
+
+        wandb_log = {}
+        for x, y in adv_stats_meter.items():
+            wandb_log[x] = y.avg
+        wandb.log(wandb_log)
+        
+
 
         # visualization
         if args.vis:
@@ -381,7 +441,8 @@ def attack_model(model, generator, save_dir, cfg, args):
             break
         eval_scenes[data['seq']] = True
 
-        pbar.update(generator.index-pbar.n)
+        if adv_cfg.debug:
+            pbar.update(generator.index-pbar.n)
 
     print_log(f'\n\n total_num_pred: {total_num_pred}', log)
     if cfg.dataset == 'nuscenes_pred':
@@ -528,6 +589,12 @@ if __name__ == '__main__':
             cfg.adv_cfg = adv_cfg
 
     # adv_cfg.exp_name = exp_name
+
+    # set up wandb
+    wandb.init(project="robust_pred", entity="yulongc")
+
+    wandb.run.name = adv_cfg.exp_name
+    wandb.run.save()
 
     cfg.adv_cfg = adv_cfg
 

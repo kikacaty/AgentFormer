@@ -106,10 +106,17 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
+
+    parser.add_argument('--exp_name', default='None')
+    parser.add_argument('--pred_epoch', type=int, default=100)
     args = parser.parse_args()
 
     """ setup """
     cfg = Config(args.cfg)
+    cfg.exp_name = args.exp_name
+    cfg.pred_epoch = args.pred_epoch
+    if cfg.exp_name != 'None':
+        cfg.update_dirs(args.exp_name)
     if args.epochs is None:
         epochs = [cfg.get_last_epoch()]
     else:

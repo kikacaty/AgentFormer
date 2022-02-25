@@ -32,7 +32,7 @@ motion_reg: 0.1
 traj_reg: 0.5
 
 debug: False
-exp_name: test_noise_new
+exp_name: test_search_new
 ttl_frame: []
 
 # ================= Eval =================

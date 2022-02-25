@@ -19,7 +19,10 @@ def collision_loss(pre_motion, adv_id = 0):
     return (1/dist).mean()
 
 def mean_distances(fut_motion, pred_motion):
-    return (fut_motion - pred_motion)[:,1:,:].norm(dim=-1).mean()
+    return (fut_motion - pred_motion).norm(dim=-1).mean()
+
+def min_mean_distances(fut_motion, pred_motions):
+    return (pred_motions - fut_motion.unsqueeze(1)).norm(dim=-1).mean(dim=-1).min(dim=-1)[0].mean()
 
 def longitudal_mean_displacements(fut_motion, pred_motion, pre_motion):
     s_fut = fut_motion - torch.cat((pre_motion[:,-1,:].unsqueeze(1),fut_motion[:,:-1,:]), 1)

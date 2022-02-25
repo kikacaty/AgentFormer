@@ -33,7 +33,7 @@ traj_reg: 1.0
 
 # ================= Utils =================
 debug: False
-exp_name: test_opt_end
+exp_name: test_opt_start
 ttl_frame: []
 
 # ================= Eval =================

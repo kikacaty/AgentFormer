@@ -61,6 +61,11 @@ def train(epoch):
             tb_ind += 1
             last_generator_index = generator.index
 
+            wandb_log = {}
+            for x, y in train_loss_meter.items():
+                wandb_log[x] = y.avg
+            wandb.log(wandb_log)
+
     scheduler.step()
     model.step_annealer()
 

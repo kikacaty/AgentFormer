@@ -233,7 +233,7 @@ class DynamicModel(object):
         self.bicycle_params = {
             'k': 0.2, # curvature 
             # 'dk': 0.05,
-            'dh': np.pi/6,
+            # 'dh': np.pi/6,
             # 'ddh': np.pi/10,
             'a_s': 2, # acc
             # 'a_l': 3, # lateral acc

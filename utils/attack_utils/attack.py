@@ -100,6 +100,11 @@ class Attacker(object):
             # target_pred_motion = recon_motion_3D.contiguous()[1:]
             model.zero_grad()
 
+            target_pred_motion_samples = sample_motion_3D.transpose(0, 1)[torch.arange(sample_motion_3D.size(1))!=adv_agent.idx]
+            loss_min_mean_distance = min_mean_distances(target_fut_motion, target_pred_motion_samples).to(device)
+
+            
+
             loss_bending = motion_bending_loss(target_fut_motion, target_pred_motion, target_pre_motion)
             loss_mean_distance = mean_distances(target_fut_motion, target_pred_motion).to(device)
             loss_lon = longitudal_mean_displacements(target_fut_motion, target_pred_motion, target_pre_motion)
@@ -117,7 +122,7 @@ class Attacker(object):
                     "Pre Traj": loss_traj.item(),
                 }
 
-                cost = loss_mean_distance + (loss_motion + cfg.traj_reg * loss_traj) * cfg.motion_reg + loss_col * cfg.collision_reg
+                cost = loss_min_mean_distance + (loss_motion + cfg.traj_reg * loss_traj) * cfg.motion_reg + loss_col * cfg.collision_reg
             else:
                 loss_dict = {
                     "ADE": loss_mean_distance.item(),
