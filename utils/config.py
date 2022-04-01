@@ -9,7 +9,7 @@ from .utils import recreate_dirs
 
 class Config:
 
-    def __init__(self, cfg_id, base_dir=None, exp_name = None, tmp=False, create_dirs=False. ngc=False):
+    def __init__(self, cfg_id, base_dir=None, exp_name = None, tmp=False, create_dirs=False, ngc=False):
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
