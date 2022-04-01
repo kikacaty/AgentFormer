@@ -9,53 +9,87 @@ import cv2
 import glob
 from data.map import GeometricMap
 
+from utils.attack_utils.constraint import DynamicModelOpt
+from utils.config import AdvConfig
+
 import pickle
 
 from pdb import set_trace as st
+import matplotlib.pyplot as plt
 
+import dill
 
 """ Metrics """
 
-def compute_ADE(pred_arr, gt_arr):
+def compute_ADE(pred_arr, gt_arr, PI=None):
+    if PI is None:
+        PI = np.ones(pred_arr.shape[0])
     ade = 0.0
-    for pred, gt in zip(pred_arr, gt_arr):
+    for pred, gt, sens in zip(pred_arr, gt_arr, PI):
         diff = pred - np.expand_dims(gt, axis=0)        # samples x frames x 2
         dist = np.linalg.norm(diff, axis=-1)            # samples x frames
         dist = dist.mean(axis=-1)                       # samples
-        ade += dist.min(axis=0)                         # (1, )
+        ade += dist.min(axis=0) * sens                  # (1, )
     ade /= len(pred_arr)
     return ade
 
 
-def compute_FDE(pred_arr, gt_arr):
+def compute_FDE(pred_arr, gt_arr, PI=None):
+    if PI is None:
+        PI = np.ones(pred_arr.shape[0])
     fde = 0.0
-    for pred, gt in zip(pred_arr, gt_arr):
+    for pred, gt, sens in zip(pred_arr, gt_arr, PI):
         diff = pred - np.expand_dims(gt, axis=0)        # samples x frames x 2
         dist = np.linalg.norm(diff, axis=-1)            # samples x frames
         dist = dist[..., -1]                            # samples 
-        fde += dist.min(axis=0)                         # (1, )
+        fde += dist.min(axis=0) * sens                         # (1, )
     fde /= len(pred_arr)
     return fde
 
-def compute_MR(pred_arr, gt_arr, tolerance=2):
+def compute_MR(pred_arr, gt_arr, tolerance=2, PI=None):
+    if PI is None:
+        PI = np.ones(pred_arr.shape[0])
     mr = 0.0
-    for pred, gt in zip(pred_arr, gt_arr):
+    for pred, gt, sens in zip(pred_arr, gt_arr, PI):
         diff = pred - np.expand_dims(gt, axis=0)        # samples x frames x 2
         dist = np.linalg.norm(diff, axis=-1)            # samples x frames
         cur_mr = (dist > tolerance).sum(axis=-1)                            # samples 
-        mr += cur_mr.min(axis=0)                         # (1, )
+        mr += cur_mr.min(axis=0) * sens                         # (1, )
     mr /= len(pred_arr)
     return mr/12.
 
-def compute_ORR(pred_arr, vis_map):
+def compute_violation(past_arr, gt_past_arr, device = None, cfg = None):
+    dynamic_model = DynamicModelOpt(past_arr, device=device, cfg = cfg)
+    k_vio, dds_vio = dynamic_model.get_violations()
+    st()
+
+    return k_vio
+
+
+# def compute_ORR(pred_arr, vis_map):
+#     mr = 0.0
+#     for pred in pred_arr:
+#         map_points = vis_map.to_map_points(pred).round().astype(int)     # samples x frames x 3
+#         orig_shape = map_points.shape[:-1]
+#         map_points = map_points.reshape(-1,2)
+#         pixels = np.array([vis_map.data.transpose(1,2,0)[x[0],x[1]] for x in map_points]).reshape([*orig_shape,3])
+#         cur_rates = (pixels == [255, 240, 243]).sum(1)[:,0]         # samples 
+#         mr += cur_rates.mean(axis=0)                         # (1, )
+#     mr /= len(pred_arr)
+#     return mr/12.
+
+def compute_ORR(pred_arr, scene_map, PI=None):
+    if PI is None:
+        PI = np.ones(pred_arr.shape[0])
     mr = 0.0
-    for pred in pred_arr:
-        map_points = vis_map.to_map_points(pred).round().astype(int)     # samples x frames x 3
+    for pred, sens in zip(pred_arr, PI):
+        map_points = scene_map.to_map_points(pred).round().astype(int)     # samples x frames x 3
         orig_shape = map_points.shape[:-1]
         map_points = map_points.reshape(-1,2)
-        pixels = np.array([vis_map.data.transpose(1,2,0)[x[0],x[1]] for x in map_points]).reshape([*orig_shape,3])
-        cur_rates = (pixels == [255, 240, 243]).sum(1)[:,0]         # samples 
-        mr += cur_rates.mean(axis=0)                         # (1, )
+        pixels = np.array([scene_map.data.transpose(1,2,0)[x[0],x[1],0] for x in map_points]).reshape([*orig_shape])
+        cur_rates = (pixels != 255).sum(1)               # samples 
+        mr += cur_rates.mean(axis=0) * sens                         # (1, )
+
     mr /= len(pred_arr)
     return mr/12.
 
@@ -70,7 +104,7 @@ def align_gt(pred, gt):
     return pred_new, gt_new
 
 
-def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=False):
+def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=False, device=None, dump=False):
     dataset = dataset.lower()
     results_dir = results_dir
     
@@ -89,7 +123,10 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
         'FDE': compute_FDE,
         'MissRate': compute_MR,
         'OffRoadRate': compute_ORR,
+        # 'Violation': compute_violation,
     }
+
+    eval_cfg = AdvConfig('adv_opt')
 
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
 
@@ -100,16 +137,24 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
     with open(d_stats_file, 'rb') as reader:
         d_stats = pickle.load(reader)
 
+    metric_map = {}
+
     for seq_name in seq_eval:
+
+        metric_map[seq_name] = {x: AverageMeter() for x in stats_func.keys()}
+
         # load GT raw data
         map_vis_file = f'{data_root}/map_0.1/vis_{seq_name}.png'
+        map_file = f'{data_root}/map_0.1/{seq_name}.png'
         map_meta_file = f'{data_root}/map_0.1/meta_{seq_name}.txt'
         scene_vis_map = np.transpose(cv2.cvtColor(cv2.imread(map_vis_file), cv2.COLOR_BGR2RGB), (2, 0, 1))
+        scene_map = np.transpose(cv2.imread(map_file), (2, 0, 1))
         meta = np.loadtxt(map_meta_file)
         map_origin = meta[:2]
         map_scale = scale = meta[2]
         homography = np.array([[scale, 0., 0.], [0., scale, 0.], [0., 0., scale]])
         scene_vis_map = GeometricMap(scene_vis_map, homography, map_origin)
+        scene_map = GeometricMap(scene_map, homography, map_origin)
 
         gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name+'.txt'))
         gt_raw = []
@@ -161,18 +206,27 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
                 # append
                 agent_traj.append(pred_idx)
                 gt_traj.append(gt_idx)
+            
+            agent_traj = np.array(agent_traj)
+            gt_traj = np.array(gt_traj)
 
             """compute stats"""
             for stats_name, meter in stats_meter.items():
                 func = stats_func[stats_name]
                 if stats_name == 'OffRoadRate':
-                    value = func(agent_traj, scene_vis_map)
+                    value = func(agent_traj, scene_map)
+                elif stats_name == 'Violation':
+                    continue
                 else:
                     value = func(agent_traj, gt_traj)
                 meter.update(value, n=len(agent_traj))
+                metric_map[seq_name][stats_name].update(value, n=len(agent_traj))
 
             # stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
             # print(f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d} {stats_str}')
+    if dump:
+        data_file_path = os.path.join(results_dir,f"scene_metrics.dill")
+        dill.dump(metric_map, open(data_file_path, mode='wb'))
 
     return stats_meter
 
@@ -210,6 +264,7 @@ if __name__ == '__main__':
         'ADE': compute_ADE,
         'FDE': compute_FDE,
         'MissRate': compute_MR,
+        'OffRoadRate': compute_ORR,
     }
 
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
@@ -218,6 +273,18 @@ if __name__ == '__main__':
     print_log('\n\nnumber of sequences to evaluate is %d' % len(seq_eval), log_file)
     for seq_name in seq_eval:
         # load GT raw data
+        map_vis_file = f'{data_root}/map_0.1/vis_{seq_name}.png'
+        map_file = f'{data_root}/map_0.1/{seq_name}.png'
+        map_meta_file = f'{data_root}/map_0.1/meta_{seq_name}.txt'
+        scene_vis_map = np.transpose(cv2.cvtColor(cv2.imread(map_vis_file), cv2.COLOR_BGR2RGB), (2, 0, 1))
+        scene_map = np.transpose(cv2.imread(map_file), (2, 0, 1))
+        meta = np.loadtxt(map_meta_file)
+        map_origin = meta[:2]
+        map_scale = scale = meta[2]
+        homography = np.array([[scale, 0., 0.], [0., scale, 0.], [0., 0., scale]])
+        scene_vis_map = GeometricMap(scene_vis_map, homography, map_origin)
+        scene_map = GeometricMap(scene_map, homography, map_origin)
+
         gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name+'.txt'))
         gt_raw = []
         for line_data in gt_data:
@@ -261,10 +328,16 @@ if __name__ == '__main__':
                 agent_traj.append(pred_idx)
                 gt_traj.append(gt_idx)
 
+            agent_traj = np.array(agent_traj)
+            gt_traj = np.array(gt_traj)
+
             """compute stats"""
             for stats_name, meter in stats_meter.items():
                 func = stats_func[stats_name]
-                value = func(agent_traj, gt_traj)
+                if stats_name == 'OffRoadRate':
+                    value = func(agent_traj, scene_map)
+                else:
+                    value = func(agent_traj, gt_traj)
                 meter.update(value, n=len(agent_traj))
 
             stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])

@@ -196,9 +196,15 @@ def attack_model(model, generator, save_dir, cfg, args):
         if adv_pre_s.norm(dim=1).min() < 1 or adv_fute_s.norm(dim=1).min() < 1:
             skip = True
         
-        if adv_cfg.debug:
+        if len(adv_cfg.ttl_frame) != 0:
             if data['seq'] in eval_scenes.keys():
                 skip = True
+            if skip:
+                continue
+            if total_num_frame not in [6,8,22,30,39,57,62,67,70,98,100]:
+                eval_scenes[data['seq']] = True
+                total_num_frame += 1 
+                continue
 
         # ================= End filtering input traces for attack =================
 
@@ -278,6 +284,10 @@ def attack_model(model, generator, save_dir, cfg, args):
             agent_traj.append(pred_idx)
             gt_traj.append(gt_idx)
 
+        adv_agent_traj = np.array(adv_agent_traj)
+        agent_traj = np.array(agent_traj)
+        gt_traj = np.array(gt_traj)
+
         """compute stats"""
         for stats_name, meter in stats_meter.items():
             func = stats_func[stats_name]
@@ -303,7 +313,7 @@ def attack_model(model, generator, save_dir, cfg, args):
         wandb_log = {}
         for x, y in adv_stats_meter.items():
             wandb_log[x] = y.avg
-        wandb.log(wandb_log)
+        # wandb.log(wandb_log)
         
 
 
@@ -317,7 +327,7 @@ def attack_model(model, generator, save_dir, cfg, args):
 
             vis_dir = os.path.join(save_dir, 'vis'); mkdir_if_missing(vis_dir)
 
-            fig = plt.figure(figsize=[10,5])
+            fig = plt.figure(figsize=[10,10])
             ax = fig.add_subplot(111)
 
             line_w = 2
@@ -336,6 +346,8 @@ def attack_model(model, generator, save_dir, cfg, args):
             pre_path = gt_pre_motion_3D[idx].cpu().data.numpy()
             pred_path = sample_motion_3D[0][idx].cpu().data.numpy()
             adv_pred_path = adv_sample_motion_3D[0][idx].cpu().data.numpy()
+
+            adv_path = np.concatenate([pre_path,adv_pred_path],axis=0)
 
             fut_path = np.insert(fut_path, 0,pre_path[-1],axis=0)
             pred_path = np.insert(pred_path, 0,pre_path[-1],axis=0)
@@ -366,7 +378,7 @@ def attack_model(model, generator, save_dir, cfg, args):
                 pre_lines.append((ax.plot(pre_path[:,0], pre_path[:,1], color=c[0],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],pre_path))
                 fut_lines.append((ax.plot(fut_path[:,0], fut_path[:,1], color=c[1],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],fut_path))
                 pred_lines.append((ax.plot(pred_path[:,0], pred_path[:,1], color=c[2],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],pred_path))
-                adv_pred_lines.append((ax.plot(adv_pred_path[:,0], adv_pred_path[:,1], color=c[3],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],adv_pred_path))
+                # adv_pred_lines.append((ax.plot(adv_pred_path[:,0], adv_pred_path[:,1], color=c[3],marker='o', linewidth=line_w, markersize=marker_s,alpha=0.5)[0],adv_pred_path))
 
 
 
@@ -379,14 +391,28 @@ def attack_model(model, generator, save_dir, cfg, args):
                     Line2D([0], [0], color='w', markerfacecolor='black', marker='o', label='benign agent')]
             
             window = 50
-            centerx, centery = np.mean(plt.xlim()), np.mean(plt.ylim())
+            window_buff = 5
+            # centerx, centery = np.mean(plt.xlim()), np.mean(plt.ylim())
+            centerx, centery = np.mean(adv_path,axis=0)
             plt.xlim((centerx - window, centerx + window))
             plt.ylim((centery - window, centery + window))
+            
+            plt.xlim((centerx - window, centerx + window))
+            plt.ylim((centery - window, centery + window))
+
+            # x_min = np.min([gt_motion_3D.cpu().data.reshape(-1,2)[:,0].min(), gt_pre_motion_3D.cpu().data.reshape(-1,2)[:,0].min()]) - window_buff
+            # x_max = np.max([gt_motion_3D.cpu().data.reshape(-1,2)[:,0].max(), gt_pre_motion_3D.cpu().data.reshape(-1,2)[:,0].max()]) + window_buff
+            # y_min = np.min([gt_motion_3D.cpu().data.reshape(-1,2)[:,1].min(), gt_pre_motion_3D.cpu().data.reshape(-1,2)[:,1].min()]) - window_buff
+            # y_max = np.max([gt_motion_3D.cpu().data.reshape(-1,2)[:,1].max(), gt_pre_motion_3D.cpu().data.reshape(-1,2)[:,1].max()]) + window_buff
+            # plt.xlim((x_min, x_max))
+            # plt.ylim((y_min, y_max))
+
             ax.margins(0.1)
             box = ax.get_position()
             ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
             # Put a legend to the right of the current axis
-            ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+            # ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+            ax.legend(handles=legend_elements, bbox_to_anchor=(1, -0.05), fancybox=True, ncol=4)
             # ax.legend(handles=legend_elements)
             lim = np.stack([plt.xlim(),plt.ylim()]).transpose()
             lim_pos = np.round(data['scene_map_vis'].to_map_points(lim)).astype(int)
@@ -397,18 +423,22 @@ def attack_model(model, generator, save_dir, cfg, args):
             def update(num, adv):
                 num += 1
                 if num <= cfg.past_frames:
-                    for line, line_data in pre_lines:
-                        line.set_data(line_data[:num,0],line_data[:num,1])
+                    if adv:
+                        adv_agent_pre_line.set_data(adv_agent_pre_path[:num,0],adv_agent_pre_path[:num,1])
+                    else:
+                        adv_agent_pre_line.set_data([],[])  
+                        for line, line_data in pre_lines:
+                            line.set_data(line_data[:num,0],line_data[:num,1])
                     for line, line_data in pred_lines:
                         line.set_data([],[])
                     for line, line_data in adv_pred_lines:
                             line.set_data([],[])  
                     for line, line_data in fut_lines:
                         line.set_data([],[])
-                    if adv:
-                        adv_agent_pre_line.set_data(adv_agent_pre_path[:num,0],adv_agent_pre_path[:num,1])
-                    else:
-                        adv_agent_pre_line.set_data([],[])   
+                    # if adv:
+                    #     adv_agent_pre_line.set_data(adv_agent_pre_path[:num,0],adv_agent_pre_path[:num,1])
+                    # else:
+                    #     adv_agent_pre_line.set_data([],[])   
                 else:
                     if adv:
                         for line, line_data in adv_pred_lines:
@@ -416,8 +446,8 @@ def attack_model(model, generator, save_dir, cfg, args):
                     else:
                         for line, line_data in fut_lines:
                             line.set_data(line_data[:num-cfg.past_frames,0],line_data[:num-cfg.past_frames,1])
-                    for line, line_data in pred_lines:
-                        line.set_data(line_data[:num-cfg.past_frames,0],line_data[:num-cfg.past_frames,1])
+                        for line, line_data in pred_lines:
+                            line.set_data(line_data[:num-cfg.past_frames,0],line_data[:num-cfg.past_frames,1])
             
             
             line_ani = FuncAnimation(fig, update, frames=20, fargs=(False,),
@@ -476,11 +506,11 @@ def attack(args, cfg, adv_cfg):
                 results = []
                 save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/{adv_cfg.exp_name}'
                 eval_dir = f'{save_dir}/samples_baseline'
-                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv,device=device,dump=True)
                 results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
                 for iters in adv_cfg.iters:
                     adv_eval_dir = f'{save_dir}/samples_adv/step_{iters}'
-                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv, device=device,dump=True)
                     results.append(f'{iters}\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
         print('iters\t'+'\t'.join([f'{x}' for x, y in stats_meter.items()]))
         print('\n'.join(results))
@@ -515,12 +545,12 @@ def attack(args, cfg, adv_cfg):
                 if not args.cached:
                     attack_model(model, generator, save_dir, cfg, args)
 
-                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                stats_meter = evaluate(eval_dir, exclude_adv=adv_cfg.exclude_adv,device=device)
                 results.append(f'0\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
 
                 for iters in adv_cfg.iters:
                     adv_eval_dir = f'{save_dir}/samples_adv/step_{iters}'
-                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv)
+                    stats_meter = evaluate(adv_eval_dir, exclude_adv=adv_cfg.exclude_adv,device=device)
                     results.append(f'{iters}\t' + '\t'.join([f'{y.avg:.4f}' for x, y in stats_meter.items()]))
 
                 print('iters\t'+'\t'.join([f'{x}' for x, y in stats_meter.items()]))
@@ -590,11 +620,12 @@ if __name__ == '__main__':
 
     # adv_cfg.exp_name = exp_name
 
-    # set up wandb
-    wandb.init(project="robust_pred", entity="yulongc")
+    # if not args.eval:
+    #     # set up wandb
+    #     wandb.init(project="robust_pred", entity="yulongc")
 
-    wandb.run.name = adv_cfg.exp_name
-    wandb.run.save()
+    #     wandb.run.name = adv_cfg.exp_name
+    #     wandb.run.save()
 
     cfg.adv_cfg = adv_cfg
 

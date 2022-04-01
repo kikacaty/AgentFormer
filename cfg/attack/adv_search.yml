@@ -1,7 +1,7 @@
 # ================= General attack params =================
 mode: search
 
-use_k: True
+use_k: False
 
 fix_t:
   value: True
@@ -18,7 +18,7 @@ adv_agent:
 
 noise: 0.01
 
-iters: [10, 20, 30, 40, 50]
+iters: [30]
 
 eps: 1
 step_size: 5.0e-2
@@ -32,8 +32,8 @@ motion_reg: 0.1
 traj_reg: 0.5
 
 debug: False
-exp_name: test_search_new
-ttl_frame: []
+exp_name: vis_search_final
+ttl_frame: [100]
 
 # ================= Eval =================
-exclude_adv: True
+exclude_adv: False

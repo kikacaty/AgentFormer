@@ -32,7 +32,7 @@ class AverageMeter(object):
     self.val = val    
     self.sum += val * n     
     self.count += n
-    self.avg = self.sum / self.count  
+    self.avg = self.sum / self.count
     self.list.append(val)
 
 

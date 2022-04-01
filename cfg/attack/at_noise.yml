@@ -20,7 +20,7 @@ noise: 0.01
 
 iters: [30]
 
-eps: 1
+eps: 0.1
 step_size: 5.0e-2
 step_size_dds: 1.0e-1
 step_size_dh: 1.0e-1

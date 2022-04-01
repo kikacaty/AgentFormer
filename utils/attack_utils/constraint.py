@@ -26,7 +26,7 @@ class DynamicModelOpt(object):
             'a_l': 3, # lateral acc
             'ds': 15 # assume the speed is constrained
         }
-        
+
         self.xy = xy.clone() * cfg.traj_scale
         self.device = device
         self.cfg = cfg
@@ -125,6 +125,13 @@ class DynamicModelOpt(object):
             'ddh': ddh,
         }
 
+    def get_violations(self):
+        k_violations = (torch.abs(self.k.detach().cpu().numpy()) > self.bicycle_params['k']).mean()
+        dds_violations = (torch.abs(self.dds.detach().cpu().numpy()) > self.bicycle_params['a_s']).mean()
+
+        return k_violations,dds_violations
+
+
     def build_motion(self):
         def d(x):
             dx = torch.zeros_like(x)
@@ -187,16 +194,16 @@ class DynamicModelOpt(object):
 
         heading = new_h.squeeze(-1)[-1]
 
-        if self.cfg.debug:
-            for agent_id in range(self.xy.shape[1]):
-                fig = plt.figure()
-                plt.plot(self.xy[:,agent_id,:].cpu()[:,0],self.xy[:,agent_id,:].cpu()[:,1], 'o-', label='gt')
-                plt.plot(new_xy_s.detach()[:,agent_id,:].cpu()[:,0],new_xy_s.detach()[:,agent_id,:].cpu()[:,1], 'x-', label='opt')
-                plt.legend()
-                plt.savefig(f'debug/test_{agent_id}.png')
-                plt.close('all')
+        # if self.cfg.debug:
+        #     for agent_id in range(self.xy.shape[1]):
+        #         fig = plt.figure()
+        #         plt.plot(self.xy[:,agent_id,:].cpu()[:,0],self.xy[:,agent_id,:].cpu()[:,1], 'o-', label='gt')
+        #         plt.plot(new_xy_s.detach()[:,agent_id,:].cpu()[:,0],new_xy_s.detach()[:,agent_id,:].cpu()[:,1], 'x-', label='opt')
+        #         plt.legend()
+        #         plt.savefig(f'debug/test_{agent_id}.png')
+        #         plt.close('all')
 
-            self.new_ds = new_ds
+        #     self.new_ds = new_ds
 
 
         return new_xy, heading, [loss_motion, loss_traj, loss_traj_init]
@@ -239,6 +246,17 @@ class DynamicModel(object):
             # 'a_l': 3, # lateral acc
             'ds': 15 # assume the speed is constrained
         }
+
+        if not use_k:
+            self.bicycle_params = {
+                # 'k': 0.2, # curvature 
+                # 'dk': 0.05,
+                'dh': 0.06,
+                'ddh': 0.39,
+                'a_s': 12, # acc
+                # 'a_l': 3, # lateral acc
+                'ds': 36 # assume the speed is constrained
+            }
         
         self.xy = xy.clone().to(device) * cfg.traj_scale # frame, na, xy
         self.device = device
@@ -490,6 +508,18 @@ class DynamicStats(object):
         for key in self.stats.keys():
             self.stats[key] = [0,0,0,np.inf,-np.inf] # mu, sigma, n, min, max
 
+        self.bicycle_params = {
+            'k': 0.2, # curvature 
+            'dk': 0.05,
+            'dh': np.pi/6,
+            'ddh': np.pi/10,
+            'a_s': 5, # acc
+            'a_l': 3, # lateral acc
+            'ds': 15 # assume the speed is constrained
+        }
+
+        self.violts_desc = []
+
         self.dt = 0.5
 
     def update_stats(self, states):
@@ -504,7 +534,15 @@ class DynamicStats(object):
             self.stats[key][2] = n1 + n2
             self.stats[key][3] = np.min([self.stats[key][3],states[key].min()])
             self.stats[key][4] = np.max([self.stats[key][4],states[key].max()])
-        print(self.stats)
+        # print(self.stats)
+
+    def visualize_traj(self,traj,vis_name='violation_traj'):
+        plt.figure(figsize=(10,10))
+        plt.plot(traj[:,0],traj[:,1],'ro-')
+        plt.savefig(f'debug/{vis_name}.png')
+        plt.close('all')
+        for violts in self.violts_desc:
+            print(violts)
 
     def parse_dynamics(self, xy):
         def d(x, is_heading=False):
@@ -529,8 +567,8 @@ class DynamicStats(object):
 
 
         ds = np.sqrt(dx**2 + dy**2)
-        if ds.min() < 1:
-            return
+        if ds.min() < 1: # skipping backing scenario
+            return True
         dds = d(ds)
 
         # mask_k = (dx * dx + dy * dy <= 5**2)
@@ -558,3 +596,14 @@ class DynamicStats(object):
             if np.nan in value:
                 st()
         self.update_stats(states)
+
+        self.violts_desc = []
+
+        for key in states.keys():
+            if (np.abs(states[key]) > self.bicycle_params[key]).sum() != 0: # check all ts satisfy constraints
+                self.violts_desc.append(f'{key} violation: {" ".join("{0:0.2f}".format(i) for i in states[key])}, with bound {self.bicycle_params[key]}')
+        if len(self.violts_desc) > 0:
+            return False
+
+        return True
+

@@ -1,10 +1,10 @@
 # ================= General attack params =================
-mode: noise
+mode: search
 
-use_k: True
+use_k: False
 
 fix_t:
-  value: False
+  value: True
   t_idx: -1
 
 target_agent:
@@ -18,7 +18,7 @@ adv_agent:
 
 noise: 0.01
 
-iters: [30]
+iters: [10, 20, 30, 40, 50]
 
 eps: 1
 step_size: 5.0e-2
@@ -32,8 +32,8 @@ motion_reg: 0.1
 traj_reg: 0.5
 
 debug: False
-exp_name: test_noise_new
-ttl_frame: []
+exp_name: test_search_stats
+ttl_frame: [100]
 
 # ================= Eval =================
 exclude_adv: False

@@ -88,19 +88,21 @@ class Attacker(object):
             if target_agent.all:
                 target_fut_motion = model.data['fut_motion'].transpose(0, 1)
                 target_pred_motion = sample_motion_3D[0]
+                target_pred_motion_samples = sample_motion_3D.transpose(0, 1)
                 target_pre_motion = orig_pre_motion.detach().transpose(0, 1)
                 if target_agent.other:
                     target_fut_motion = target_fut_motion[torch.arange(target_fut_motion.size(0))!=adv_agent.idx]
                     target_pred_motion = target_pred_motion[torch.arange(target_pred_motion.size(0))!=adv_agent.idx]
+                    target_pred_motion_samples = target_pred_motion_samples[torch.arange(sample_motion_3D.size(1))!=adv_agent.idx]
                     target_pre_motion = target_pre_motion[torch.arange(target_pre_motion.size(0))!=adv_agent.idx]
             else:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
                 target_fut_motion = model.data['fut_motion'].transpose(0, 1)[target_agent.idx].unsqueeze(0)
                 target_pred_motion = sample_motion_3D[0][target_agent.idx].unsqueeze(0)
+                target_pred_motion_samples = sample_motion_3D.transpose(0, 1)[target_agent.idx].unsqueeze(0)
                 target_pre_motion = orig_pre_motion.detach().transpose(0, 1)[target_agent.idx].unsqueeze(0)
             # target_pred_motion = recon_motion_3D.contiguous()[1:]
             model.zero_grad()
 
-            target_pred_motion_samples = sample_motion_3D.transpose(0, 1)[torch.arange(sample_motion_3D.size(1))!=adv_agent.idx]
             loss_min_mean_distance = min_mean_distances(target_fut_motion, target_pred_motion_samples).to(device)
 
             

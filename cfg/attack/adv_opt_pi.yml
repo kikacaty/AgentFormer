@@ -1,39 +1,40 @@
 # ================= General attack params =================
-mode: noise
+mode: opt
 
 use_k: True
 
 fix_t:
-  value: False
+  value: True
   t_idx: -1
 
 target_agent:
   all: True
-  other: True
+  other: False
   idx: 0
 
 adv_agent:
   all: False
-  idx: 0
+  idx: 1
 
 noise: 0.01
 
-iters: [30]
+iters: [10, 20, 30, 40, 50]
 
 eps: 1
 step_size: 5.0e-2
-step_size_dds: 1.0e-1
+step_size_dds: 5.0e-2
 step_size_dh: 1.0e-1
 step_size_dk: 5.0e-2
 
+# ================= Loss =================
+collision_reg: 0.1
+motion_reg: 0.3
+traj_reg: 1.0
 
-collision_reg: 0.0
-motion_reg: 0.1
-traj_reg: 0.5
-
+# ================= Utils =================
 debug: False
-exp_name: test_noise_new
+exp_name: test_opt_start
 ttl_frame: []
 
 # ================= Eval =================
-exclude_adv: False
+exclude_adv: True

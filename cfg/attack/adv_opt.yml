@@ -33,8 +33,9 @@ traj_reg: 1.0
 
 # ================= Utils =================
 debug: False
-exp_name: test_opt_start
-ttl_frame: []
+exp_name: vis_opt_final
+ttl_frame: [100]
 
 # ================= Eval =================
-exclude_adv: True
+exclude_adv: False
+traj_scale: 10

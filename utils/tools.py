@@ -284,7 +284,7 @@ def plot_box(box, lw, color='g', alpha=0.7, no_heading=False):
     plt.fill(simple_box[:, 0], simple_box[:, 1], color=color, edgecolor='k',
              alpha=alpha, zorder=3, linewidth=1.0)
     if not no_heading:
-        plt.plot(arrow[:, 0], arrow[:, 1], 'b', alpha=0.5)
+        plt.plot(arrow[:, 0], arrow[:, 1], color=color, alpha=0.5)
 
 
 def plot_car(x, y, h, l, w, color='b', alpha=0.5, no_heading=False):

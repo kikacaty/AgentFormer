@@ -39,7 +39,9 @@ def main():
                 if id == cur_id: 
                     traj.append(xys[idx,:])
             traj = np.array(traj)
-            d_stats.parse_dynamics(traj)
+            if not d_stats.parse_dynamics(traj):
+                d_stats.visualize_traj(traj)
+                st()
 
     print('name\t mean\t var\t num\t min\t max')
     for key in d_stats.stats.keys():
