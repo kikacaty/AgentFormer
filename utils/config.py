@@ -9,7 +9,7 @@ from .utils import recreate_dirs
 
 class Config:
 
-    def __init__(self, cfg_id, base_dir=None, exp_name = None, tmp=False, create_dirs=False):
+    def __init__(self, cfg_id, base_dir=None, exp_name = None, tmp=False, create_dirs=False. ngc=False):
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
@@ -20,6 +20,8 @@ class Config:
         self.results_root_dir = os.path.expanduser(self.yml_dict['results_root_dir'])
         # results dirs
         cfg_root_dir = '/tmp/agentformer' if tmp else self.results_root_dir
+        if ngc:
+            cfg_root_dir = '/worspace/results'
         self.cfg_root_dir = os.path.expanduser(cfg_root_dir)
 
         if base_dir is not None:

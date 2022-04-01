@@ -7,27 +7,27 @@ easydict
 nuscenes-devkit
 imageio
 
-matplotlib
-numpy
-pandas
-scipy
-seaborn
-tensorflow
-# torch
-pyquaternion
-pytest
-orjson
-ncls
-dill
-pathos
-tqdm
-notebook
-scikit-learn
-nuscenes-devkit
-pykalman
-cvxpy
-# You will likely need to source deactivate and activate
-# again to get the correct tensorboard version used.
-gym
-stable-baselines3
-requests
+# matplotlib
+# numpy
+# pandas
+# scipy
+# seaborn
+# tensorflow
+# # torch
+# pyquaternion
+# pytest
+# orjson
+# ncls
+# dill
+# pathos
+# tqdm
+# notebook
+# scikit-learn
+# nuscenes-devkit
+# pykalman
+# cvxpy
+# # You will likely need to source deactivate and activate
+# # again to get the correct tensorboard version used.
+# gym
+# stable-baselines3
+# requests

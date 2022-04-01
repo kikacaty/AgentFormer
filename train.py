@@ -69,10 +69,11 @@ if __name__ == '__main__':
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--ngc', action='store_true', default=False)
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg, args.tmp, create_dirs=True)
+    cfg = Config(args.cfg, args.tmp, create_dirs=True, ngc=ngc)
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if torch.cuda.is_available() else torch.device('cpu')
