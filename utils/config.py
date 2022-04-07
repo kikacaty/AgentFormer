@@ -21,7 +21,7 @@ class Config:
         # results dirs
         cfg_root_dir = '/tmp/agentformer' if tmp else self.results_root_dir
         if ngc:
-            cfg_root_dir = '/worspace/results'
+            cfg_root_dir = '/workspace/results'
         self.cfg_root_dir = os.path.expanduser(cfg_root_dir)
 
         if base_dir is not None:

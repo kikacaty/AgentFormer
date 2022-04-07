@@ -248,3 +248,94 @@ class Attacker(object):
         model.data['pre_motion'].detach_()
         model.data['heading'].detach_()
         model.update_data(data, pre_motion = model.data['pre_motion'], heading = model.data['heading'])
+
+
+def simple_noise_attack(model, data, eps = 0.1/10, iters = 5):
+    model.set_data(data)
+    orig_pre_motion = model.data['pre_motion'].detach()
+    pre_motion_mask = model.data['pre_mask']
+    pre_motion_mask = pre_motion_mask.unsqueeze(-1).transpose(0,1).tile(1,1,2).detach()
+    orig_heading = model.data['heading']
+
+    device = orig_pre_motion.device
+    delta = 1e-3 * eps * torch.randn(orig_pre_motion.shape).to(device).detach()
+    delta.requires_grad = True
+    pre_motion = delta * pre_motion_mask + orig_pre_motion
+    
+    optimizer = torch.optim.SGD([delta], lr = eps/iters*2)
+    # optimizer = torch.optim.SGD([delta], lr = 1e-3)
+
+    best_result = [1e3, None]
+
+    for i in range(iters):
+        model.update_data(data, pre_motion, orig_heading)    
+        model_data = model()
+        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss(adv=True)
+        adv_loss = -total_loss
+        optimizer.zero_grad()
+        adv_loss.backward()
+        optimizer.step()
+
+        print(adv_loss.item())
+
+        if adv_loss < best_result[0]:
+            best_result[1] = pre_motion.clone().detach()
+
+        pre_motion = delta.data.clamp_(-eps,eps) * pre_motion_mask + orig_pre_motion
+        # pre_motion = delta * pre_motion_mask + orig_pre_motion
+
+    model.update_data(data, best_result[1], orig_heading)    
+    adv_data_out = model()
+
+    return adv_data_out
+
+def trade_loss(model, data, eps = 0.1/10, iters = 5):
+    
+    adv_data_out = simple_noise_attack(model, data, eps=eps, iters=iters)
+
+    model.set_data(data)
+
+    data_out = model()
+
+    trade_loss = 0
+
+    # motion_mse
+    cfg = model.loss_cfg['mse']
+    diff = adv_data_out['train_dec_motion'] - data_out['train_dec_motion']
+    if cfg.get('mask', True):
+        mask = data_out['fut_mask']
+        diff *= mask.unsqueeze(2)
+    loss_unweighted = diff.pow(2).sum() 
+    if cfg.get('normalize', True):
+        loss_unweighted /= diff.shape[0]
+    loss = loss_unweighted * cfg['weight']
+    
+    trade_loss += loss
+
+    # z_kld
+    cfg = model.loss_cfg['kld']
+    loss_unweighted = data_out['q_z_dist'].kl(adv_data_out['q_z_dist']).sum()
+    if cfg.get('normalize', True):
+        loss_unweighted /= data_out['batch_size']
+    # loss_unweighted = loss_unweighted.clamp_min_(cfg.min_clip)
+    loss = loss_unweighted * cfg['weight']
+
+    trade_loss += loss
+
+    # sample loss
+    cfg = model.loss_cfg['sample']
+
+    diff = data_out['infer_dec_motion'] - adv_data_out['infer_dec_motion']
+    if cfg.get('mask', True):
+        mask = data_out['fut_mask'].unsqueeze(1).unsqueeze(-1)
+        diff *= mask
+    dist = diff.pow(2).sum(dim=-1).sum(dim=-1)
+    loss_unweighted = dist.min(dim=1)[0]
+    if cfg.get('normalize', True):
+        loss_unweighted = loss_unweighted.mean()
+    else:
+        loss_unweighted = loss_unweighted.sum()
+    loss = loss_unweighted * cfg['weight']
+    trade_loss += loss
+
+    return trade_loss

@@ -739,11 +739,12 @@ class AgentFormer(nn.Module):
         self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
         return self.data[f'{mode}_dec_motion'], self.data
 
-    def compute_loss(self):
+    def compute_loss(self, adv=False):
         total_loss = 0
         loss_dict = {}
         loss_unweighted_dict = {}
         for loss_name in self.loss_names:
+            if adv and loss_name != 'sample': continue
             loss, loss_unweighted = loss_func[loss_name](self.data, self.loss_cfg[loss_name])
             total_loss += loss
             loss_dict[loss_name] = loss.item()

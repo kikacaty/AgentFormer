@@ -14,13 +14,19 @@ from utils.torch import *
 from utils.config import Config, AdvConfig
 from utils.utils import prepare_seed, print_log, AverageMeter, convert_secs2time, get_timestring
 
-from utils.attack_utils.attack import Attacker
+from utils.attack_utils.attack import Attacker, trade_loss, simple_noise_attack
+
+from utils.timer import Timer
+from tqdm import tqdm
 
 import wandb
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
+
+torch.set_printoptions(sci_mode=False, precision=3)
+
 
 from pdb import set_trace as st
 
@@ -42,60 +48,45 @@ def logging(cfg, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_st
 		convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str), log)
 
 
-def gen_adv_data(data, adv_cfg=None):
-    model.set_data(data)
+def validate(epoch, args):
+    train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
+    train_loss_meter['total_loss'] = AverageMeter()
 
-    attacker = Attacker(model, adv_cfg)
-    if adv_cfg.mode == 'opt':
-        attacker.perturb_opt(data)
-    elif adv_cfg.mode == 'noise':
-        attacker.perturb_noise(data)
-    elif adv_cfg.mode == 'search':
-        attacker.perturb_search(data)
-    else:
-        raise NotImplementedError("Unknow attack mode!")
-    
-    in_data = data
+    eval_scenes = set()
+    model.eval()
 
-    if len(data['pre_motion_3D']) <= 1:
-        return
+    pbar = tqdm(total = test_generator.num_total_samples)
 
-    ori_pre_motion = model.data['pre_vel']
-    perturb_mask = torch.zeros_like(model.data['pre_vel'])
-    perturb_mask[...,0] = 1
-    target_id = 1
+    while not test_generator.is_epoch_end():
+        data = test_generator()
+        pbar.update(1)
+        if data is not None:
+            seq, frame = data['seq'], data['frame']
+            if seq in eval_scenes: continue
+            eval_scenes.add(seq)
 
-    target_fut_motion = model.data['fut_motion'][:,1:,:].transpose(0,1)
-    for i in range(iterations):
-        perturbed_pre_motion = model.data['pre_vel'].data
-        # for key in model.data.keys():
-        #     if model.data[key]
-        #     model.data[key].requires_grad = False
-        model.data['pre_vel'].requires_grad = True
+            model.eval()
+            adv_model_data = simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
+            # model.set_data(data)
+            # model()
+            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+            """ optimize """
 
-        recon_motion_3D, _ = model.inference(mode='recon')
-        # sample_motion_3D, data = model.inference(mode='infer', sample_num=1, need_weights=False)
-        # sample_motion_3D = sample_motion_3D.transpose(0, 1).contiguous()
+            train_loss_meter['total_loss'].update(total_loss.item())
+            for key in loss_unweighted_dict.keys():
+                train_loss_meter[key].update(loss_unweighted_dict[key])
 
-        # recon_motion_3D = sample_motion_3D[0]
+            pbar.set_description(' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()]))
 
-        target_pred_motion = recon_motion_3D[1:]
-        model.zero_grad()
+    losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()])
+    print(f'Validation for Epo {epoch}: {losses_str}')
 
-        cost = motion_bending_loss(target_fut_motion, target_pred_motion).to(device)
-        # print(cost.item())
-        # cost.backward(retain_graph=True)
-        cost.backward()
-
-        adv_pre_motion = perturbed_pre_motion + alpha*perturb_mask*model.data['pre_vel'].grad.sign()
-        eta = torch.clamp(adv_pre_motion - ori_pre_motion, min=-eps, max=eps)
-        model.data['pre_vel'] = (ori_pre_motion + eta).detach_()
-        
-    
-        update_pre_motion = torch.zeros_like(model.data['pre_motion'])
-        update_pre_motion[1:,...] = torch.cumsum(model.data['pre_vel'],dim=0) 
-        update_pre_motion += model.data['pre_motion'][0,...]
-        model.update_data_train(update_pre_motion, in_data)
+    if not args.debug:
+        wandb_log = {}
+        for x, y in train_loss_meter.items():
+            if x == 'kld': continue
+            wandb_log[f'test/{x}'] = y.avg
+        wandb.log(wandb_log)
 
 def train(epoch, args):
     global tb_ind
@@ -104,42 +95,61 @@ def train(epoch, args):
     train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
     train_loss_meter['total_loss'] = AverageMeter()
     last_generator_index = 0
-    attacker = Attacker(model, adv_cfg)
+    # attacker = Attacker(model, adv_cfg)
+
+    adv_timer = Timer()
+    train_timer = Timer()
+
     while not generator.is_epoch_end():
         data = generator()
         if data is not None:
             seq, frame = data['seq'], data['frame']
 
-            model.set_data(data)
+            if args.benign:
+                model.train()
+                model.set_data(data)
+                model_data = model()
+                total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+            else:
+                adv_timer.tic()
+                if args.trade:
+                    model.eval()
+                    loss_trade = trade_loss(model, data, eps=args.eps/10, iters=args.pgd_step)
 
-            gen_adv = True
-            gen_adv = np.random.random() > args.mix
+                    model.train()
+                    model.set_data(data)
+                    model_data = model()
+                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
 
-            if gen_adv:
-                model.eval()
-                attacker.perturb_train(data)
+                    total_loss += args.beta * loss_trade
+                else:
+                    model.eval()
+                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step)
+                    model.train()
+                    model_data = model()
+                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                if args.debug:
+                    print(f'adv time: {adv_timer.toc()}')
 
-
-            model.train()
-            model_data = model()
-            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+            train_timer.tic()
             """ optimize """
-
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
+            if args.debug:
+                print(f'train time: {train_timer.toc()}')
 
             train_loss_meter['total_loss'].update(total_loss.item())
             for key in loss_unweighted_dict.keys():
                 train_loss_meter[key].update(loss_unweighted_dict[key])
 
-        if generator.index - last_generator_index > cfg.print_freq:
+        if not args.debug and generator.index - last_generator_index > cfg.print_freq:
             ep = time.time() - since_train
             losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()])
             logging(args.cfg, epoch, cfg.num_epochs, generator.index, generator.num_total_samples, ep, seq, frame, losses_str, log)
-            for name, meter in train_loss_meter.items():
-                tb_logger.add_scalar('adv_model_' + name, meter.avg, tb_ind)
-            tb_ind += 1
+            # for name, meter in train_loss_meter.items():
+            #     tb_logger.add_scalar('adv_model_' + name, meter.avg, tb_ind)
+            # tb_ind += 1
             last_generator_index = generator.index
 
             wandb_log = {}
@@ -160,14 +170,32 @@ if __name__ == '__main__':
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--mix', type=float, default=0)
+    parser.add_argument('--ngc', action='store_true', default=False)
+
     parser.add_argument('--free', action='store_true', default=False)
-    parser.add_argument('--pgd_step', type=int, default=1)
     parser.add_argument('--full', action='store_true', default=False)
+    parser.add_argument('--debug', action='store_true', default=False)
+
+    # adv train params
+    parser.add_argument('--beta', type=float, default=5)
+    parser.add_argument('--eps', type=float, default=0.1)
+    parser.add_argument('--pgd_step', type=int, default=1)
+    parser.add_argument('--test_pgd_step', type=int, default=10)
+
+    # parser.add_argument('--finetune', action='store_true', default=False)
+    parser.add_argument('--trade', action='store_true', default=False)
+    parser.add_argument('--pretrained', default=None)
+
+    parser.add_argument('--benign', action='store_true', default=False)
+
+
+
+
 
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg, tmp=args.tmp, create_dirs=True)
+    cfg = Config(args.cfg, tmp=args.tmp, create_dirs=True, ngc=args.ngc)
     adv_cfg = AdvConfig(args.adv_cfg, tmp=args.tmp, create_dirs=True)
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
@@ -189,20 +217,32 @@ if __name__ == '__main__':
 
     adv_cfg.iters = [args.pgd_step]
 
-    # set up wandb
-    wandb.init(project="robust_pred", entity="yulongc")
-    wandb.config = {
-        'pgd_step': args.pgd_step,
-        'mix': args.mix,
-        'free': args.free,
-        'adv mode': adv_cfg.mode
-    }
+    args.finetune = (args.pretrained is not None)
 
     adv_agent = 'full' if args.full else 'single'
+    exp_name = f'eps_{args.eps}_step_{args.pgd_step}_beta_{args.beta}_free_{args.free}_adv_noise'
+    if args.trade:
+        exp_name = f'trade/{exp_name}'
+    if args.finetune:
+        exp_name = f'finetune/{exp_name}'
 
-    exp_name = f'pgd_step_{args.pgd_step}_mix_{args.mix}_free_{args.free}_adv_{adv_cfg.mode}_{adv_agent}'
-    wandb.run.name = exp_name
-    wandb.run.save()
+    # exp_name = f'pgd_step_{args.pgd_step}_mix_{args.mix}_free_{args.free}_adv_{adv_cfg.mode}_{adv_agent}'
+
+    if not args.debug:
+        # set up wandb
+        wandb.init(project="robust_pred", entity="yulongc")
+        wandb.config = {
+            'pgd_step': args.pgd_step,
+            'mix': args.mix,
+            'free': args.free,
+            'adv mode': adv_cfg.mode,
+            'beta': args.beta,
+            'eps': args.eps
+        }
+
+        
+        wandb.run.name = exp_name
+        wandb.run.save()
     cfg.update_dirs(exp_name)
     
     time_str = get_timestring()
@@ -217,6 +257,7 @@ if __name__ == '__main__':
 
     """ data """
     generator = data_generator(cfg, log, split='train', phase='training')
+    test_generator = data_generator(cfg, log, split='test', phase='testing')
 
     """ model """
     model_id = cfg.get('model_id', 'agentformer')
@@ -242,12 +283,26 @@ if __name__ == '__main__':
         if 'scheduler_dict' in model_cp:
             scheduler.load_state_dict(model_cp['scheduler_dict'])
 
+    if args.pretrained:
+        cp_path = args.pretrained
+        print_log(f'loading model from checkpoint: {cp_path}', log)
+        # model_cp = torch.load(cp_path, map_location='cpu')
+        model_cp = torch.load(cp_path, map_location=device)
+        model.load_state_dict(model_cp['model_dict'],strict=False)
+        # if 'opt_dict' in model_cp:
+        #     optimizer.load_state_dict(model_cp['opt_dict'])
+        # if 'scheduler_dict' in model_cp:
+        #     scheduler.load_state_dict(model_cp['scheduler_dict'])
+
+
     """ start training """
     model.set_device(device)
     model.train()
 
     for i in range(args.start_epoch, cfg.num_epochs):
         train(i,args)
+
+        validate(i,args)
         """ save model """
         if cfg.model_save_freq > 0 and (i + 1) % cfg.model_save_freq == 0:
             cp_path = cfg.model_path % (i + 1)
