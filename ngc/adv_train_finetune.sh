@@ -31,6 +31,6 @@ do
         --workspace yulong-avg:/workspace \
         --result /result \
         --port 8888 \
-        --commandline "$CMD" &&
+        --commandline "$CMD" 
     done
 done
