@@ -41,16 +41,23 @@ def motion_bending_loss(fut_motion, pred_motion):
     return loss_weighted
 
 def logging(cfg, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_str, log):
-	print_log('{} | Epo: {:02d}/{:02d}, '
+    print('{} | Epo: {:02d}/{:02d}, '
 		'It: {:04d}/{:04d}, '
 		'EP: {:s}, ETA: {:s}, seq {:s}, frame {:05d}, {}'
         .format(cfg, epoch, total_epoch, iter, total_iter, \
-		convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str), log)
+		convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str))
+	
+    # print_log('{} | Epo: {:02d}/{:02d}, '
+	# 	'It: {:04d}/{:04d}, '
+	# 	'EP: {:s}, ETA: {:s}, seq {:s}, frame {:05d}, {}'
+    #     .format(cfg, epoch, total_epoch, iter, total_iter, \
+	# 	convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str), log)
 
 
 def validate(epoch, args):
     train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
-    train_loss_meter['total_loss'] = AverageMeter()
+
+    adv_train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
 
     eval_scenes = set()
     model.eval()
@@ -66,26 +73,32 @@ def validate(epoch, args):
             eval_scenes.add(seq)
 
             model.eval()
-            adv_model_data = simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
-            # model.set_data(data)
-            # model()
+            model.set_data(data)
+            model()
             total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
-            """ optimize """
 
-            train_loss_meter['total_loss'].update(total_loss.item())
             for key in loss_unweighted_dict.keys():
                 train_loss_meter[key].update(loss_unweighted_dict[key])
 
-            pbar.set_description(' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()]))
+            adv_model_data = simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
+            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
 
-    losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()])
-    print(f'Validation for Epo {epoch}: {losses_str}')
+            for key in loss_unweighted_dict.keys():
+                adv_train_loss_meter[key].update(loss_unweighted_dict[key])
+
+            pbar.set_description(' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in adv_train_loss_meter.items()]))
+
+    # losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in adv_train_loss_meter.items()])
+    # print(f'Validation for Epo {epoch}: {losses_str}')
 
     if not args.debug:
         wandb_log = {}
-        for x, y in train_loss_meter.items():
-            if x == 'kld': continue
+        for x, y in adv_train_loss_meter.items():
+            if x == 'kld' or x == 'total_loss': continue
             wandb_log[f'test/{x}'] = y.avg
+        for x, y in train_loss_meter.items():
+            if x == 'kld' or x == 'total_loss': continue
+            wandb_log[f'test/benign_{x}'] = y.avg
         wandb.log(wandb_log)
 
 def train(epoch, args):
@@ -147,9 +160,6 @@ def train(epoch, args):
             ep = time.time() - since_train
             losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()])
             logging(args.cfg, epoch, cfg.num_epochs, generator.index, generator.num_total_samples, ep, seq, frame, losses_str, log)
-            # for name, meter in train_loss_meter.items():
-            #     tb_logger.add_scalar('adv_model_' + name, meter.avg, tb_ind)
-            # tb_ind += 1
             last_generator_index = generator.index
 
             wandb_log = {}
@@ -185,6 +195,7 @@ if __name__ == '__main__':
     # parser.add_argument('--finetune', action='store_true', default=False)
     parser.add_argument('--trade', action='store_true', default=False)
     parser.add_argument('--pretrained', default=None)
+    parser.add_argument('--finetune_lr', type=float, default=0.1)
 
     parser.add_argument('--benign', action='store_true', default=False)
 
@@ -220,11 +231,14 @@ if __name__ == '__main__':
     args.finetune = (args.pretrained is not None)
 
     adv_agent = 'full' if args.full else 'single'
-    exp_name = f'eps_{args.eps}_step_{args.pgd_step}_beta_{args.beta}_free_{args.free}_adv_noise'
+    exp_name = f'eps_{args.eps}_step_{args.pgd_step}_free_{args.free}_adv_noise'
     if args.trade:
-        exp_name = f'trade/{exp_name}'
+        exp_name = f'trade_{args.beta}/{exp_name}'
     if args.finetune:
-        exp_name = f'finetune/{exp_name}'
+        cfg.lr *= args.finetune_lr
+        exp_name = f'finetune_{args.finetune_lr}/{exp_name}'
+    if not args.ngc:
+        exp_name = f'fast/{exp_name}'
 
     # exp_name = f'pgd_step_{args.pgd_step}_mix_{args.mix}_free_{args.free}_adv_{adv_cfg.mode}_{adv_agent}'
 

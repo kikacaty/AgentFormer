@@ -18,6 +18,8 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
+import wandb
+
 
 def logging(cfg, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_str, log):
 	print_log('{} | Epo: {:02d}/{:02d}, '
@@ -59,6 +61,12 @@ def train(epoch):
             tb_ind += 1
             last_generator_index = generator.index
 
+            wandb_log = {}
+            for x, y in train_loss_meter.items():
+                wandb_log[x] = y.avg
+            wandb_log['epoch'] = epoch
+            wandb.log(wandb_log)
+
     scheduler.step()
     model.step_annealer()
 
@@ -70,6 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--ngc', action='store_true', default=False)
+    parser.add_argument('--debug', action='store_true', default=False)
     args = parser.parse_args()
 
     """ setup """
@@ -87,6 +96,11 @@ if __name__ == '__main__':
     print_log("cudnn version : {}".format(torch.backends.cudnn.version()), log)
     tb_logger = SummaryWriter(cfg.tb_dir)
     tb_ind = 0
+
+    if not args.debug:
+        wandb.init(project="robust_pred", entity="yulongc")
+        wandb.run.name = f'benign/{cfg.id}'
+        wandb.run.save()
 
     """ data """
     generator = data_generator(cfg, log, split='train', phase='training')

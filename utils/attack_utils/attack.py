@@ -276,8 +276,6 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5):
         adv_loss.backward()
         optimizer.step()
 
-        print(adv_loss.item())
-
         if adv_loss < best_result[0]:
             best_result[1] = pre_motion.clone().detach()
 
