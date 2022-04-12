@@ -15,6 +15,8 @@ import numpy as np
 from .loss import *
 from .constraint import *
 
+from utils.timer import Timer
+
 from pdb import set_trace as st
 
 class Attacker(object):
@@ -250,7 +252,7 @@ class Attacker(object):
         model.update_data(data, pre_motion = model.data['pre_motion'], heading = model.data['heading'])
 
 
-def simple_noise_attack(model, data, eps = 0.1/10, iters = 5):
+def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None):
     model.set_data(data)
     orig_pre_motion = model.data['pre_motion'].detach()
     pre_motion_mask = model.data['pre_mask']
@@ -260,7 +262,6 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5):
     device = orig_pre_motion.device
     delta = 1e-3 * eps * torch.randn(orig_pre_motion.shape).to(device).detach()
     delta.requires_grad = True
-    pre_motion = delta * pre_motion_mask + orig_pre_motion
     
     optimizer = torch.optim.SGD([delta], lr = eps/iters*2)
     # optimizer = torch.optim.SGD([delta], lr = 1e-3)
@@ -268,28 +269,59 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5):
     best_result = [1e3, None]
 
     for i in range(iters):
-        model.update_data(data, pre_motion, orig_heading)    
-        model_data = model()
-        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss(adv=True)
+        pre_motion = delta * pre_motion_mask + orig_pre_motion
+        model.update_data(data, pre_motion, orig_heading)
+        if scaler:
+            with torch.cuda.amp.autocast():
+                # recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+                # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+                # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+                # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+                model.adv_forward()
+                total_loss, loss_dict, loss_unweighted_dict = model.compute_loss(adv=True)
+        else:
+            recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+            sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+            # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+            # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss(adv=True)
         adv_loss = -total_loss
         optimizer.zero_grad()
-        adv_loss.backward()
-        optimizer.step()
+
+        if scaler:
+            scaler.scale(adv_loss).backward()
+            scaler.unscale_(optimizer)
+            grad_norms = delta.grad.norm(p=2)
+            delta.grad.div_(grad_norms)
+            # avoid nan or inf if gradient is 0
+            if (grad_norms == 0).any():
+                delta.grad = torch.randn_like(delta.grad)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            adv_loss.backward()
+            grad_norms = delta.grad.norm(p=2)
+            delta.grad.div_(grad_norms)
+            # avoid nan or inf if gradient is 0
+            if (grad_norms == 0).any():
+                delta.grad = torch.randn_like(delta.grad)
+            optimizer.step()
+
 
         if adv_loss < best_result[0]:
             best_result[1] = pre_motion.clone().detach()
 
-        pre_motion = delta.data.clamp_(-eps,eps) * pre_motion_mask + orig_pre_motion
+        delta.data.clamp_(-eps,eps)
         # pre_motion = delta * pre_motion_mask + orig_pre_motion
 
     model.update_data(data, best_result[1], orig_heading)    
-    adv_data_out = model()
 
-    return adv_data_out
+    return model.data
 
 def trade_loss(model, data, eps = 0.1/10, iters = 5):
     
     adv_data_out = simple_noise_attack(model, data, eps=eps, iters=iters)
+    adv_data_out = model()
 
     model.set_data(data)
 

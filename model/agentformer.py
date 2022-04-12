@@ -395,7 +395,7 @@ class FutureDecoder(nn.Module):
     def decode_traj_batch(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num):
         raise NotImplementedError
 
-    def forward(self, data, mode, sample_num=1, autoregress=True, z=None, need_weights=False):
+    def forward(self, data, mode, sample_num=1, autoregress=True, z=None, need_weights=False, fixedsample=False):
         context = data['context_enc'].repeat_interleave(sample_num, dim=1)       # 80 x 64
         pre_motion = data['pre_motion'].repeat_interleave(sample_num, dim=1)             # 10 x 80 x 2
         pre_vel = data['pre_vel'].repeat_interleave(sample_num, dim=1) if self.pred_type == 'vel' else None
@@ -421,7 +421,8 @@ class FutureDecoder(nn.Module):
                 z = data['q_z_samp'] if mode == 'train' else data['q_z_dist'].mode()
             elif mode == 'infer':
                 z = data['p_z_dist_infer'].sample()
-                # z = data['p_z_dist_infer'].fixedsample()
+                if fixedsample:
+                    z = data['p_z_dist_infer'].fixed_sample()
             else:
                 raise ValueError('Unknown Mode!')
 
@@ -737,6 +738,31 @@ class AgentFormer(nn.Module):
             sample_num = 1
             self.future_encoder(self.data)
         self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
+        return self.data[f'{mode}_dec_motion'], self.data
+
+    def adv_forward(self):
+        if self.use_map:
+            self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
+        self.context_encoder(self.data)
+        self.future_encoder(self.data)
+        self.future_decoder(self.data, mode='train', autoregress=self.ar_train)
+        if self.compute_sample:
+            # self.adv_inference(sample_num=self.loss_cfg['sample']['k'])
+            self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
+        return self.data
+
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False):
+        if self.use_map and self.data['map_enc'] is None:
+            self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
+        if self.data['context_enc'] is None:
+            self.context_encoder(self.data)
+        if mode == 'recon':
+            sample_num = 1
+            self.future_encoder(self.data)
+            self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
+        else:
+            self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=True)
+
         return self.data[f'{mode}_dec_motion'], self.data
 
     def compute_loss(self, adv=False):

@@ -6,12 +6,12 @@ do
     do
         INS="dgx1v.16g.1.norm"
 
-        BASENAME="step-${STEP}-${EPS} ml.model.adv_agentformer"
+        BASENAME="step_${STEP}_eps_${EPS} ml.model.adv_agentformer-finetune-trade"
 
         WS_ID=yulong-avg # replace with your workspace ID
 
 
-        NAME="finetune-trade-$BASENAME"
+        NAME="$BASENAME"
         CMD="cd /workspace/adv_pred/; git pull; \
             apt-get update && apt-get install libgl1 -y; \
             pip install -r requirements.txt;\

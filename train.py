@@ -14,6 +14,8 @@ from utils.torch import *
 from utils.config import Config
 from utils.utils import prepare_seed, print_log, AverageMeter, convert_secs2time, get_timestring
 
+from tqdm import tqdm
+
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
@@ -28,6 +30,52 @@ def logging(cfg, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_st
         .format(cfg, epoch, total_epoch, iter, total_iter, \
 		convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str), log)
 
+def validate(epoch, args):
+    train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
+
+    adv_train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
+
+    eval_scenes = set()
+    model.eval()
+
+    pbar = tqdm(total = test_generator.num_total_samples)
+
+    while not test_generator.is_epoch_end():
+        data = test_generator()
+        pbar.update(1)
+        if data is not None:
+            seq, frame = data['seq'], data['frame']
+            if seq in eval_scenes: continue
+            eval_scenes.add(seq)
+
+            model.eval()
+            model.set_data(data)
+            model()
+            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+
+            for key in loss_unweighted_dict.keys():
+                train_loss_meter[key].update(loss_unweighted_dict[key])
+
+            adv_model_data = simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
+            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+
+            for key in loss_unweighted_dict.keys():
+                adv_train_loss_meter[key].update(loss_unweighted_dict[key])
+
+            pbar.set_description(' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in adv_train_loss_meter.items()]))
+
+    # losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in adv_train_loss_meter.items()])
+    # print(f'Validation for Epo {epoch}: {losses_str}')
+
+    if not args.debug:
+        wandb_log = {}
+        for x, y in adv_train_loss_meter.items():
+            if x == 'kld' or x == 'total_loss': continue
+            wandb_log[f'test/{x}'] = y.avg
+        for x, y in train_loss_meter.items():
+            if x == 'kld' or x == 'total_loss': continue
+            wandb_log[f'test/benign_{x}'] = y.avg
+        wandb.log(wandb_log)
 
 def train(epoch):
     global tb_ind

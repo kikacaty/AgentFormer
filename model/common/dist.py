@@ -20,7 +20,7 @@ class Normal:
         return self.mu + eps * self.sigma
     
     def fixed_sample(self):
-        return self.mu + 0.1 * self.sigma
+        return self.mu
 
     def sample(self):
         return self.rsample()

@@ -26,6 +26,7 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
 torch.set_printoptions(sci_mode=False, precision=3)
+scaler = torch.cuda.amp.GradScaler()
 
 
 from pdb import set_trace as st
@@ -80,7 +81,8 @@ def validate(epoch, args):
             for key in loss_unweighted_dict.keys():
                 train_loss_meter[key].update(loss_unweighted_dict[key])
 
-            adv_model_data = simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
+            simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
+            model()
             total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
 
             for key in loss_unweighted_dict.keys():
@@ -121,8 +123,13 @@ def train(epoch, args):
             if args.benign:
                 model.train()
                 model.set_data(data)
-                model_data = model()
-                total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                if args.amp:
+                    with torch.cuda.amp.autocast():
+                        model_data = model()
+                        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()  
+                else:
+                    model_data = model()
+                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
             else:
                 adv_timer.tic()
                 if args.trade:
@@ -131,24 +138,39 @@ def train(epoch, args):
 
                     model.train()
                     model.set_data(data)
-                    model_data = model()
-                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                    if args.amp:
+                        with torch.cuda.amp.autocast():
+                            model_data = model()
+                            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                    else:
+                        model_data = model()
+                        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
 
                     total_loss += args.beta * loss_trade
                 else:
                     model.eval()
-                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step)
+                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, scaler=(scaler if args.amp else None))
                     model.train()
-                    model_data = model()
-                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                    if args.amp:
+                        with torch.cuda.amp.autocast():
+                            model_data = model()
+                            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                    else:
+                        model_data = model()
+                        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
                 if args.debug:
                     print(f'adv time: {adv_timer.toc()}')
 
             train_timer.tic()
             """ optimize """
             optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
+            if args.amp:
+                scaler.scale(total_loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                total_loss.backward()
+                optimizer.step()
             if args.debug:
                 print(f'train time: {train_timer.toc()}')
 
@@ -198,6 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--finetune_lr', type=float, default=0.1)
 
     parser.add_argument('--benign', action='store_true', default=False)
+    parser.add_argument('--amp', action='store_true', default=False)
 
 
 
@@ -231,7 +254,7 @@ if __name__ == '__main__':
     args.finetune = (args.pretrained is not None)
 
     adv_agent = 'full' if args.full else 'single'
-    exp_name = f'eps_{args.eps}_step_{args.pgd_step}_free_{args.free}_adv_noise'
+    exp_name = f'eps_{args.eps}_step_{args.pgd_step}_free_{args.free}_amp_{args.amp}_adv'
     if args.trade:
         exp_name = f'trade_{args.beta}/{exp_name}'
     if args.finetune:
@@ -312,11 +335,12 @@ if __name__ == '__main__':
     """ start training """
     model.set_device(device)
     model.train()
+    validate(0,args)
 
     for i in range(args.start_epoch, cfg.num_epochs):
         train(i,args)
 
-        validate(i,args)
+        validate(i+1,args)
         """ save model """
         if cfg.model_save_freq > 0 and (i + 1) % cfg.model_save_freq == 0:
             cp_path = cfg.model_path % (i + 1)

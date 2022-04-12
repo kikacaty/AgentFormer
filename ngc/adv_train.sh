@@ -2,11 +2,11 @@
 
 for STEP in 1 2 3 4 5
 do
-    for EPS in 0.1 0.2 0.5 1.0
+    for EPS in 0.5 1.0
     do
         INS="dgx1v.16g.1.norm"
 
-        BASENAME="step-${STEP}-${EPS} ml.model.adv_agentformer"
+        BASENAME="step_${STEP}_${EPS} ml.model.adv_agentformer"
 
         WS_ID=yulong-avg # replace with your workspace ID
 
@@ -19,7 +19,7 @@ do
             export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; "
         CMD="${CMD} \ 
             python adv_train.py --cfg adv_mini_nusc_5sample_pre --adv_cfg at_noise \
-            --pgd_step $STEP --eps $EPS --test_pgd_step 20 --ngc"
+            --pgd_step $STEP --eps $EPS --test_pgd_step 10 --ngc"
 
         echo "$CMD"
 
