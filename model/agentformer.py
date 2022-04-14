@@ -740,15 +740,23 @@ class AgentFormer(nn.Module):
         self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
         return self.data[f'{mode}_dec_motion'], self.data
 
-    def adv_forward(self):
+    def adv_forward(self, qz=False):
         if self.use_map:
             self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
         self.context_encoder(self.data)
         self.future_encoder(self.data)
-        self.future_decoder(self.data, mode='train', autoregress=self.ar_train)
-        if self.compute_sample:
-            # self.adv_inference(sample_num=self.loss_cfg['sample']['k'])
-            self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
+        if qz:
+            h = self.data['agent_context'].repeat_interleave(self.loss_cfg['sample']['k'], dim=0)
+            p_z_params = self.future_decoder.p_z_net(h)
+            if self.future_decoder.z_type == 'gaussian':
+                self.data['p_z_dist'] = Normal(params=p_z_params)
+            else:
+                self.data['p_z_dist'] = Categorical(params=p_z_params)
+        else:
+            self.future_decoder(self.data, mode='train', autoregress=self.ar_train)
+            if self.compute_sample:
+                # self.adv_inference(sample_num=self.loss_cfg['sample']['k'])
+                self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
         return self.data
 
     def adv_inference(self, mode='infer', sample_num=20, need_weights=False):
@@ -765,14 +773,41 @@ class AgentFormer(nn.Module):
 
         return self.data[f'{mode}_dec_motion'], self.data
 
-    def compute_loss(self, adv=False):
+    def compute_loss(self):
         total_loss = 0
         loss_dict = {}
         loss_unweighted_dict = {}
         for loss_name in self.loss_names:
-            if adv and loss_name != 'sample': continue
             loss, loss_unweighted = loss_func[loss_name](self.data, self.loss_cfg[loss_name])
             total_loss += loss
             loss_dict[loss_name] = loss.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
+        return total_loss, loss_dict, loss_unweighted_dict
+
+    def compute_qz_loss(self):
+        qz = self.orig_q_z_dist
+        loss_unweighted = self.data['q_z_dist'].kl(qz).sum()
+        if self.cfg.get('normalize', True):
+            loss_unweighted /= self.data['batch_size']
+        return loss_unweighted
+
+    def compute_adv_loss(self, qz=None):
+        total_loss = 0
+        loss_dict = {}
+        loss_unweighted_dict = {}
+        if qz:
+            loss_name = 'qz_kl'
+            loss_unweighted = self.data['q_z_dist'].kl(qz).sum()
+            if self.cfg.get('normalize', True):
+                loss_unweighted /= self.data['batch_size']
+            total_loss += loss_unweighted
+            loss_dict[loss_name] = loss_unweighted.item()
+            loss_unweighted_dict[loss_name] = loss_unweighted.item()
+        else:
+            loss_name = 'sample'
+            loss, loss_unweighted = loss_func[loss_name](self.data, self.loss_cfg[loss_name])
+            total_loss += loss
+            loss_dict[loss_name] = loss.item()
+            loss_unweighted_dict[loss_name] = loss_unweighted.item()
+
         return total_loss, loss_dict, loss_unweighted_dict

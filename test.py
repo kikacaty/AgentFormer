@@ -154,7 +154,7 @@ def test_adv_model(generator, save_dir, cfg, args=None):
         if args.sample and data['seq'] in scene_set:continue
         scene_set.add(data['seq'])
 
-        data_out = simple_noise_attack(model,data,eps=args.eps/10, iters=args.pgd_step)
+        data_out = simple_noise_attack(model,data,eps=args.eps/10, iters=args.pgd_step, qz=args.qz)
         data['pre_motion_3D'] = [pre_mot for pre_mot in data_out['pre_motion'].cpu().transpose(0,1)]
 
         s_pts = np.stack(data['pre_motion_3D'])[:, -1] * data['traj_scale']
@@ -207,6 +207,7 @@ if __name__ == '__main__':
     parser.add_argument('--noise', action='store_true', default=False)
 
     parser.add_argument('--adv', action='store_true', default=False)
+    parser.add_argument('--qz', action='store_true', default=False)
     parser.add_argument('--eps', type=float, default=0.1)
     parser.add_argument('--pgd_step', type=int, default=20)
     parser.add_argument('--sample', action='store_true', default=False)
@@ -233,12 +234,12 @@ if __name__ == '__main__':
     if args.noise:
         log = open(os.path.join(cfg.log_dir, 'log_test_noise.txt'), 'w')
     elif args.adv:
-        log = open(os.path.join(cfg.log_dir, f'log_adv_eps_{args.eps}_step_{args.pgd_step}.txt'), 'w')
+        log = open(os.path.join(cfg.log_dir, f'log_test_adv.txt'), 'w')
     else:
         log = open(os.path.join(cfg.log_dir, 'log_test.txt'), 'w')
 
     for epoch in epochs:
-        prepare_seed(cfg.seed)
+        prepare_seed(args.seed if args.seed else cfg.seed)
         """ model """
         if not args.cached:
             model_id = cfg.get('model_id', 'agentformer')
@@ -260,7 +261,7 @@ if __name__ == '__main__':
             if args.noise:
                 save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/noise'; mkdir_if_missing(save_dir)
             elif args.adv:
-                save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/adv_eps_{args.eps}_step_{args.pgd_step}'; mkdir_if_missing(save_dir)
+                save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}/adv_eps_{args.eps}_step_{args.pgd_step}_qz_{args.qz}_{args.seed}'; mkdir_if_missing(save_dir)
             else:
                 save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}'; mkdir_if_missing(save_dir)
             eval_dir = f'{save_dir}/samples'
@@ -274,7 +275,7 @@ if __name__ == '__main__':
             if args.noise:
                 log_file = os.path.join(cfg.log_dir, 'log_eval_noise.txt')
             elif args.adv:
-                log_file = os.path.join(cfg.log_dir, f'log_eval_adv_eps_{args.eps}_step_{args.pgd_step}_{args.seed}.txt')
+                log_file = os.path.join(cfg.log_dir, f'log_eval_adv_eps_{args.eps}_step_{args.pgd_step}_qz_{args.qz}_{args.seed}.txt')
             else:
                 log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
             cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file}"

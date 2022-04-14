@@ -42,7 +42,7 @@ class Normal:
         new_mu = self.mu.clone().detach()
         new_logvar = self.logvar.clone().detach()
         return Normal(mu=new_mu, logvar=new_logvar)
-
+    
 
 class Categorical:
 

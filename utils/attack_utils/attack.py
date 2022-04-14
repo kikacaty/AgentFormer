@@ -252,12 +252,15 @@ class Attacker(object):
         model.update_data(data, pre_motion = model.data['pre_motion'], heading = model.data['heading'])
 
 
-def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None):
+def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=False):
     model.set_data(data)
     orig_pre_motion = model.data['pre_motion'].detach()
     pre_motion_mask = model.data['pre_mask']
     pre_motion_mask = pre_motion_mask.unsqueeze(-1).transpose(0,1).tile(1,1,2).detach()
     orig_heading = model.data['heading']
+
+    data_out = model()
+    model.orig_q_z_dist = orig_qz = data_out['q_z_dist'].copy()
 
     device = orig_pre_motion.device
     delta = 1e-3 * eps * torch.randn(orig_pre_motion.shape).to(device).detach()
@@ -277,16 +280,19 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None):
                 # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
                 # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
                 # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-                model.adv_forward()
-                total_loss, loss_dict, loss_unweighted_dict = model.compute_loss(adv=True)
+                model.adv_forward(qz=qz)
+                total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
         else:
-            recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
-            sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+            # recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+            # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
             # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
             # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss(adv=True)
+            model.adv_forward(qz=qz)
+            total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
         adv_loss = -total_loss
         optimizer.zero_grad()
+
+        print(adv_loss)
 
         if scaler:
             scaler.scale(adv_loss).backward()
