@@ -21,7 +21,7 @@ do
                 export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; "
             CMD="${CMD} \ 
                 python train_dlow.py --cfg adv_mini_nusc_5sample \
-                --exp_name fast/finetune_0.1/qz_reg/eps_${EPS}_step_${STEP}_free_False_amp_False_fixed_False_qz_False_adv \
+                --exp_name finetune_0.1/qz_reg/eps_${EPS}_step_${STEP}_free_False_amp_False_fixed_False_qz_False_adv \
                 --pred_epoch $EPOCH --ngc"
 
             echo "$CMD"
