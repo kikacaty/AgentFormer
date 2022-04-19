@@ -112,6 +112,8 @@ def train(epoch, args):
     generator.shuffle()
     train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
     train_loss_meter['total_loss'] = AverageMeter()
+    if args.qz_reg:
+        train_loss_meter['qz'] = AverageMeter()
     last_generator_index = 0
     # attacker = Attacker(model, adv_cfg)
 
@@ -119,7 +121,12 @@ def train(epoch, args):
     train_timer = Timer()
 
     while not generator.is_epoch_end():
+
+        if generator.index % cfg.validate_freq == 0:
+            validate(epoch, args)
+            
         data = generator()
+
         if data is not None:
             seq, frame = data['seq'], data['frame']
 
@@ -159,12 +166,16 @@ def train(epoch, args):
                             model_data = model()
                             total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
                             if args.qz_reg:
-                                total_loss += model.compute_qz_loss()
+                                qz_loss = model.compute_qz_loss()
+                                total_loss += qz_loss
+                                loss_unweighted_dict['qz'] = qz_loss.item()
                     else:
                         model_data = model()
                         total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
                         if args.qz_reg:
-                                total_loss += model.compute_qz_loss()
+                            qz_loss = model.compute_qz_loss()
+                            total_loss += qz_loss
+                            loss_unweighted_dict['qz'] = qz_loss.item()
                 if args.debug:
                     print(f'adv time: {adv_timer.toc()}')
 
@@ -196,9 +207,6 @@ def train(epoch, args):
                 wandb_log[x] = y.avg
             wandb_log['epoch'] = epoch
             wandb.log(wandb_log)
-
-        if generator.index % cfg.validate_freq == 1:
-            validate(epoch, args)
 
     scheduler.step()
     model.step_annealer()
@@ -234,7 +242,6 @@ if __name__ == '__main__':
     parser.add_argument('--amp', action='store_true', default=False)
     parser.add_argument('--fixed', action='store_true', default=False)
     parser.add_argument('--qz', action='store_true', default=False)
-
     parser.add_argument('--qz_reg', action='store_true', default=False)
 
 

@@ -56,6 +56,19 @@ class Config:
         if create_dirs:
             recreate_dirs(self.tb_dir)
 
+    def update_dlow_dirs(self, exp_name, create_dirs=False):
+        self.cfg_dir = '%s/%s' % (self.cfg_dir, exp_name)
+        self.model_dir = '%s/models/epoch_%04d' % (self.cfg_dir, self.pred_epoch)
+        self.result_dir = '%s/results' % self.cfg_dir
+        self.log_dir = '%s/log' % self.cfg_dir
+        self.tb_dir = '%s/tb' % self.cfg_dir
+        self.model_path = os.path.join(self.model_dir, 'model_%04d.p')
+        os.makedirs(self.model_dir, exist_ok=True)
+        os.makedirs(self.result_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
+        if create_dirs:
+            recreate_dirs(self.tb_dir)
+
     def get_last_epoch(self):
         model_files = sorted(glob.glob(os.path.join(self.model_dir, 'model_*.p')))
         if len(model_files) == 0:

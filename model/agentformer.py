@@ -745,6 +745,19 @@ class AgentFormer(nn.Module):
             self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
         self.context_encoder(self.data)
         self.future_encoder(self.data)
+        self.future_decoder(self.data, mode='train', autoregress=self.ar_train)
+        if self.compute_sample:
+            # self.adv_inference(sample_num=self.loss_cfg['sample']['k'])
+            self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
+        return self.data
+
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False):
+        if self.use_map and self.data['map_enc'] is None:
+            self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
+        if self.data['context_enc'] is None:
+            self.context_encoder(self.data)
+        sample_num = 1
+        self.future_encoder(self.data)
         if qz:
             h = self.data['agent_context'].repeat_interleave(self.loss_cfg['sample']['k'], dim=0)
             p_z_params = self.future_decoder.p_z_net(h)
@@ -753,23 +766,8 @@ class AgentFormer(nn.Module):
             else:
                 self.data['p_z_dist'] = Categorical(params=p_z_params)
         else:
-            self.future_decoder(self.data, mode='train', autoregress=self.ar_train)
-            if self.compute_sample:
-                # self.adv_inference(sample_num=self.loss_cfg['sample']['k'])
-                self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
-        return self.data
-
-    def adv_inference(self, mode='infer', sample_num=20, need_weights=False):
-        if self.use_map and self.data['map_enc'] is None:
-            self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
-        if self.data['context_enc'] is None:
-            self.context_encoder(self.data)
-        if mode == 'recon':
-            sample_num = 1
-            self.future_encoder(self.data)
-            self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
-        else:
-            self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=True)
+            self.future_decoder(self.data, mode='recon', sample_num=sample_num, autoregress=True, need_weights=need_weights)
+            self.future_decoder(self.data, mode='infer', sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=True)
 
         return self.data[f'{mode}_dec_motion'], self.data
 

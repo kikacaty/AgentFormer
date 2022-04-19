@@ -79,14 +79,18 @@ if __name__ == '__main__':
 
     parser.add_argument('--exp_name', default='None')
     parser.add_argument('--pred_epoch', type=int, default=100)
+    parser.add_argument('--tmp', action='store_true', default=False)
+
 
 
 
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg, args.tmp, create_dirs=True)
+    cfg = Config(args.cfg, tmp=args.tmp, create_dirs=True, ngc=args.ngc)
+    cfg.ngc = args.ngc
     cfg.exp_name = args.exp_name
+    args.exp_name = f'{args.exp_name}/epoch_{args.pred_epoch:04d}'
     cfg.pred_epoch = args.pred_epoch
     cfg.update_dirs(args.exp_name)
     prepare_seed(cfg.seed)

@@ -69,7 +69,7 @@ class DLow(nn.Module):
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
 
-        pred_cfg = Config(cfg.pred_cfg, tmp=False, create_dirs=False)
+        pred_cfg = Config(cfg.pred_cfg, tmp=False, create_dirs=False, ngc=cfg.ngc)
 
         if os.path.exists('%s/%s' % (pred_cfg.cfg_dir, cfg.exp_name)):
             pred_cfg.update_dirs(cfg.exp_name)
