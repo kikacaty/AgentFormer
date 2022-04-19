@@ -19,7 +19,7 @@ do
             export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; "
         CMD="${CMD} \ 
             python adv_train.py --cfg adv_mini_nusc_5sample_pre --adv_cfg at_noise \
-            --pgd_step $STEP --eps $EPS --test_pgd_step 20 --ngc --trade --beta 6"
+            --pgd_step $STEP --eps $EPS --test_pgd_step 10 --ngc --trade --beta 6"
 
         echo "$CMD"
 

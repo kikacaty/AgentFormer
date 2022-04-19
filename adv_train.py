@@ -122,7 +122,7 @@ def train(epoch, args):
 
     while not generator.is_epoch_end():
 
-        if generator.index % cfg.validate_freq == 0:
+        if args.dense and generator.index % cfg.validate_freq == 0:
             validate(epoch, args)
             
         data = generator()
@@ -167,7 +167,7 @@ def train(epoch, args):
                             total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
                             if args.qz_reg:
                                 qz_loss = model.compute_qz_loss()
-                                total_loss += qz_loss
+                                total_loss += args.qz_reg_beta * qz_loss
                                 loss_unweighted_dict['qz'] = qz_loss.item()
                     else:
                         model_data = model()
@@ -225,6 +225,7 @@ if __name__ == '__main__':
     parser.add_argument('--free', action='store_true', default=False)
     parser.add_argument('--full', action='store_true', default=False)
     parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--dense', action='store_true', default=False)
 
     # adv train params
     parser.add_argument('--beta', type=float, default=5)
@@ -243,6 +244,9 @@ if __name__ == '__main__':
     parser.add_argument('--fixed', action='store_true', default=False)
     parser.add_argument('--qz', action='store_true', default=False)
     parser.add_argument('--qz_reg', action='store_true', default=False)
+
+    parser.add_argument('--qz_reg_beta', type=float, default=1)
+
 
 
 
@@ -280,7 +284,7 @@ if __name__ == '__main__':
     if args.trade:
         exp_name = f'trade_{args.beta}/{exp_name}'
     if args.qz_reg:
-        exp_name = f'qz_reg/{exp_name}'
+        exp_name = f'qz_reg_{args.qz_reg_beta}/{exp_name}'
     if args.finetune:
         cfg.lr *= args.finetune_lr
         if args.finetune_fast:
@@ -363,12 +367,12 @@ if __name__ == '__main__':
     """ start training """
     model.set_device(device)
     model.train()
-    # validate(0,args)
+    validate(0,args)
 
     for i in range(args.start_epoch, cfg.num_epochs):
         train(i,args)
 
-        # validate(i+1,args)
+        validate(i+1,args)
         """ save model """
         if cfg.model_save_freq > 0 and (i + 1) % cfg.model_save_freq == 0:
             cp_path = cfg.model_path % (i + 1)

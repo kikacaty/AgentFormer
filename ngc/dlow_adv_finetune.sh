@@ -4,7 +4,7 @@ for STEP in 1 2 3 4 5
 do
     for EPS in 0.5
     do
-        for EPOCH in 30 40 50
+        for EPOCH in 10 20
         do
             INS="dgx1v.16g.1.norm"
 
