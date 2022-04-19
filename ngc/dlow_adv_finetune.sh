@@ -8,7 +8,7 @@ do
         do
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS} ml.model.adv_agentformer"
+            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 

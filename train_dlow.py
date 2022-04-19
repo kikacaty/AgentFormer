@@ -79,7 +79,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--exp_name', default='None')
     parser.add_argument('--pred_epoch', type=int, default=100)
-    parser.add_argument('--tmp', action='store_true', default=False)
+    parser.add_argument('--ngc', action='store_true', default=False)
 
 
 
