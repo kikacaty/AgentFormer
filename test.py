@@ -176,6 +176,8 @@ def test_adv_model(generator, save_dir, cfg, args=None):
         scene_set.add(data['seq'])
 
         data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, qz=args.qz)
+        if args.debug:
+            st()
         data['pre_motion_3D'] = [pre_mot for pre_mot in data_out['pre_motion'].cpu().transpose(0,1)]
 
         s_pts = np.stack(data['pre_motion_3D'])[:, -1] * data['traj_scale']
@@ -271,6 +273,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
 
     parser.add_argument('--ngc', action='store_true', default=False)
+    parser.add_argument('--debug', action='store_true', default=False)
 
 
 
@@ -341,7 +344,7 @@ if __name__ == '__main__':
                 log_file = os.path.join(cfg.log_dir, f'log_eval_adv_eps_{args.eps}_step_{args.pgd_step}_qz_{args.qz}_{args.seed}.txt')
             else:
                 log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file}"
+            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file} --wandb {args.ngc}"
             subprocess.run(cmd.split(' '))
 
             # remove eval folder to save disk space

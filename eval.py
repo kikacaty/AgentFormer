@@ -18,6 +18,7 @@ from pdb import set_trace as st
 import matplotlib.pyplot as plt
 
 import dill
+import wandb
 
 """ Metrics """
 
@@ -237,6 +238,8 @@ if __name__ == '__main__':
     parser.add_argument('--results_dir', default=None)
     parser.add_argument('--data', default='test')
     parser.add_argument('--log_file', default=None)
+    parser.add_argument('--wandb', action='store_true', default=False)
+
     args = parser.parse_args()
 
     dataset = args.dataset.lower()
@@ -259,6 +262,13 @@ if __name__ == '__main__':
     log_file = open(log_file, 'a+')
     print_log('loading results from %s' % results_dir, log_file)
     print_log('loading GT from %s' % gt_dir, log_file)
+
+    if args.wandb:
+        wandb.init(project="robust_pred", entity="yulongc")
+
+        exp_name_wandb = f'DLOW_{args.log_file}'
+        wandb.run.name = exp_name_wandb
+        wandb.run.save()
 
     stats_func = {
         'ADE': compute_ADE,
@@ -342,6 +352,12 @@ if __name__ == '__main__':
 
             stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
             print_log(f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d} {stats_str}', log_file)
+
+            if args.wandb:
+                wandb_log = {}
+                for x, y in stats_meter.items():
+                    wandb_log[x] = y.avg
+                wandb.log(wandb_log)
 
     print_log('-' * 30 + ' STATS ' + '-' * 30, log_file)
     for name, meter in stats_meter.items():
