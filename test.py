@@ -118,7 +118,7 @@ def test_noise_model(generator, save_dir, cfg):
         scene_set.add(data['seq'])
 
         eps = 0.5
-        data['pre_motion_3D'] = [pre_mot + torch.randn_like(pre_mot)/data['traj_scale']*eps for pre_mot in data['pre_motion_3D']]
+        data['pre_motion_3D'] = [pre_mot + torch.randn_like(pre_mot).clamp(-1,1)/data['traj_scale']*eps for pre_mot in data['pre_motion_3D']]
 
         s_pts = np.stack(data['pre_motion_3D'])[:, -1] * data['traj_scale']
         data['scene_map'].get_cropped_maps(s_pts, [50, 10, 50, 90])
