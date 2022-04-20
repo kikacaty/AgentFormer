@@ -344,7 +344,10 @@ if __name__ == '__main__':
                 log_file = os.path.join(cfg.log_dir, f'log_eval_adv_eps_{args.eps}_step_{args.pgd_step}_qz_{args.qz}_{args.seed}.txt')
             else:
                 log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file} --wandb {args.ngc}"
+            if args.ngc:
+                cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file} --wandb"
+            else:
+                cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file}"
             subprocess.run(cmd.split(' '))
 
             # remove eval folder to save disk space

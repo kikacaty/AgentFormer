@@ -290,7 +290,6 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
             model.adv_inference(qz=qz, sample_num=model.cfg.sample_k)
             total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
         adv_loss = -total_loss
-        print(i, adv_loss.item())
 
         optimizer.zero_grad()
 
