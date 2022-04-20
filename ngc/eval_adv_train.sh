@@ -22,10 +22,10 @@ do
             CMD="${CMD} \ 
                 python test.py --cfg adv_mini_nusc_5sample \
                                 --eps 0.5 --pgd_step 20 --ngc\
-                                eps_0.5_step_${STEP}_free_False_amp_False_adv --pred_epoch ${EPOCH} --adv;\
+                                --exp_name eps_0.5_step_${STEP}_free_False_amp_False_adv --pred_epoch ${EPOCH} --adv;\
                 python test.py --cfg adv_mini_nusc_5sample \
                                 --eps 0.5 --pgd_step 20 --ngc\
-                                eps_0.5_step_${STEP}_free_False_amp_False_adv --pred_epoch ${EPOCH}; "
+                                --exp_name eps_0.5_step_${STEP}_free_False_amp_False_adv --pred_epoch ${EPOCH}; "
 
             echo "$CMD"
 
