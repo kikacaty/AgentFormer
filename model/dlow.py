@@ -6,6 +6,8 @@ from utils.config import Config
 from .common.mlp import MLP
 from .common.dist import *
 from . import model_lib
+from .agentformer_loss import adv_loss_func
+
 
 import os
 
@@ -80,7 +82,7 @@ class DLow(nn.Module):
             cp_path = pred_cfg.model_path % cfg.pred_epoch
             print('loading model from checkpoint: %s' % cp_path)
             model_cp = torch.load(cp_path, map_location='cpu')
-            pred_model.load_state_dict(model_cp['model_dict'])
+            pred_model.load_state_dict(model_cp['model_dict'], strict=False)
         pred_model.eval()
         self.pred_model = [pred_model]
 
@@ -123,7 +125,7 @@ class DLow(nn.Module):
 
         z = b if mean else A*eps + b
         logvar = (A ** 2 + 1e-8).log()
-        self.data['q_z_dist_dlow'] = Normal(mu=b, logvar=logvar)
+        self.data['q_z_dist'] = self.data['q_z_dist_dlow'] = Normal(mu=b, logvar=logvar)
 
         pred_model.future_decoder(self.data, mode='infer', sample_num=self.nk, autoregress=True, z=z, need_weights=need_weights)
         return self.data
@@ -132,6 +134,13 @@ class DLow(nn.Module):
         return self.main(mean=self.train_w_mean)
 
     def inference(self, mode, sample_num, need_weights=False):
+        self.main(mean=True, need_weights=need_weights)
+        res = self.data[f'infer_dec_motion']
+        if mode == 'recon':
+            res = res[:, 0]
+        return res, self.data
+
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False):
         self.main(mean=True, need_weights=need_weights)
         res = self.data[f'infer_dec_motion']
         if mode == 'recon':
@@ -147,6 +156,36 @@ class DLow(nn.Module):
             total_loss += loss
             loss_dict[loss_name] = loss.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
+        return total_loss, loss_dict, loss_unweighted_dict
+
+    def compute_adv_loss(self, qz=None):
+        total_loss = 0
+        loss_dict = {}
+        loss_unweighted_dict = {}
+        if qz:
+            loss_name = 'qz_kl'
+            loss_unweighted = self.data['q_z_dist'].kl(qz).sum()
+            if self.cfg.get('normalize', True):
+                loss_unweighted /= self.data['batch_size']
+            total_loss += loss_unweighted
+            loss_dict[loss_name] = loss_unweighted.item()
+            loss_unweighted_dict[loss_name] = loss_unweighted.item()
+        else:
+            loss_name = 'sample'
+            diff = self.data['infer_dec_motion'] - self.data['fut_motion_orig'].unsqueeze(1)
+            # if cfg.get('mask', True):
+            #     mask = self.data['fut_mask'].unsqueeze(1).unsqueeze(-1)
+            #     diff *= mask
+            dist = diff.pow(2).sum(dim=-1).sum(dim=-1)
+            loss_unweighted = dist.min(dim=1)[0]
+            loss_unweighted = loss_unweighted.sum()
+            loss = loss_unweighted
+
+            # loss, loss_unweighted = adv_loss_func[loss_name](self.data, self.loss_cfg[loss_name])
+            total_loss += loss
+            loss_dict[loss_name] = loss.item()
+            loss_unweighted_dict[loss_name] = loss_unweighted.item()
+
         return total_loss, loss_dict, loss_unweighted_dict
 
     def step_annealer(self):

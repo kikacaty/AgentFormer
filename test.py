@@ -18,6 +18,9 @@ from matplotlib import collections  as mc
 from matplotlib import pyplot as plt
 from pdb import set_trace as st
 
+from eval import AverageMeter, compute_ADE, compute_FDE, compute_MR, compute_ORR
+
+
 
 def get_model_prediction(data, sample_k):
     model.set_data(data)
@@ -61,10 +64,14 @@ def save_prediction(pred, data, suffix, save_dir):
 
 def test_model(generator, save_dir, cfg):
     total_num_pred = 0
+    scene_set = set()
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
             continue
+        
+        if args.sample and data['seq'] in scene_set:continue
+        scene_set.add(data['seq'])
 
 
         s_pts = np.stack(data['pre_motion_3D'])[:, -1] * data['traj_scale']
@@ -97,14 +104,18 @@ def test_model(generator, save_dir, cfg):
             'val': 8560,
             'test': 9041
         }
-        assert total_num_pred == scene_num[generator.split]
+        # assert total_num_pred == scene_num[generator.split]
 
 def test_noise_model(generator, save_dir, cfg):
     total_num_pred = 0
+    scene_set = set()
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
             continue
+        
+        if args.sample and data['seq'] in scene_set:continue
+        scene_set.add(data['seq'])
 
         eps = 0.5
         data['pre_motion_3D'] = [pre_mot + torch.randn_like(pre_mot)/data['traj_scale']*eps for pre_mot in data['pre_motion_3D']]
@@ -141,11 +152,21 @@ def test_noise_model(generator, save_dir, cfg):
             'val': 8560,
             'test': 9041
         }
-        assert total_num_pred == scene_num[generator.split]
+        # assert total_num_pred == scene_num[generator.split]
 
 def test_adv_model(generator, save_dir, cfg, args=None):
     total_num_pred = 0
     scene_set = set()
+
+    stats_func = {
+        'ADE': compute_ADE,
+        'FDE': compute_FDE,
+        'MissRate': compute_MR,
+        'OffRoadRate': compute_ORR,
+    }
+
+    stats_meter = {x: AverageMeter() for x in stats_func.keys()}
+
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
@@ -154,7 +175,7 @@ def test_adv_model(generator, save_dir, cfg, args=None):
         if args.sample and data['seq'] in scene_set:continue
         scene_set.add(data['seq'])
 
-        data_out = simple_noise_attack(model,data,eps=args.eps/10, iters=args.pgd_step, qz=args.qz)
+        data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, qz=args.qz)
         data['pre_motion_3D'] = [pre_mot for pre_mot in data_out['pre_motion'].cpu().transpose(0,1)]
 
         s_pts = np.stack(data['pre_motion_3D'])[:, -1] * data['traj_scale']
@@ -181,6 +202,42 @@ def test_adv_model(generator, save_dir, cfg, args=None):
         save_prediction(recon_motion_3D, data, '', recon_dir)        # save recon
         num_pred = save_prediction(gt_motion_3D, data, '', gt_dir)              # save gt
         total_num_pred += num_pred
+
+
+        # evaluate
+        # scene_vis_map = data['scene_map_vis']
+        # agent_traj = []
+        # adv_agent_traj = []
+        # gt_traj = []
+        # for idx in range(sample_motion_3D.shape[1]):
+
+        #     adv_pred_idx = sample_motion_3D[:,idx,:].cpu().numpy()
+        #     pred_idx = sample_motion_3D[:,idx,:].cpu().numpy()
+        #     gt_idx = gt_motion_3D[idx,:].cpu().numpy()
+
+        #     adv_agent_traj.append(adv_pred_idx)
+        #     agent_traj.append(pred_idx)
+        #     gt_traj.append(gt_idx)
+
+        # adv_agent_traj = np.array(adv_agent_traj)
+        # agent_traj = np.array(agent_traj)
+        # gt_traj = np.array(gt_traj)
+
+        # """compute stats"""
+        # for stats_name, meter in stats_meter.items():
+        #     func = stats_func[stats_name]
+        #     if stats_name == 'OffRoadRate':
+        #         value = func(agent_traj, scene_vis_map)
+        #     else:
+        #         value = func(agent_traj, gt_traj)
+        #     meter.update(value, n=len(agent_traj))
+
+        # stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
+        # print(f'evaluating seq {data["seq"]:s}\norig {stats_str}')
+
+        # wandb_log = {}
+        # for x, y in adv_stats_meter.items():
+        #     wandb_log[x] = y.avg
 
     print_log(f'\n\n total_num_pred: {total_num_pred}', log)
     if cfg.dataset == 'nuscenes_pred' and not args.sample:
@@ -213,15 +270,21 @@ if __name__ == '__main__':
     parser.add_argument('--sample', action='store_true', default=False)
     parser.add_argument('--seed', type=int, default=0)
 
+    parser.add_argument('--ngc', action='store_true', default=False)
+
+
 
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg)
+    cfg = Config(args.cfg, ngc=args.ngc)
     cfg.exp_name = args.exp_name
     cfg.pred_epoch = args.pred_epoch
     if cfg.exp_name != 'None':
-        cfg.update_dirs(args.exp_name)
+        if 'pre' in args.cfg:
+            cfg.update_dirs(args.exp_name)
+        else:
+            cfg.update_dlow_dirs(args.exp_name)
     if args.epochs is None:
         epochs = [cfg.get_last_epoch()]
     else:

@@ -41,3 +41,7 @@ loss_func = {
     'kld': compute_z_kld,
     'sample': compute_sample_loss
 }
+
+adv_loss_func = {
+    'sample': compute_sample_loss,
+}

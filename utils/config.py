@@ -6,10 +6,13 @@ import numpy as np
 from easydict import EasyDict
 from .utils import recreate_dirs
 
+from pdb import set_trace as st
+
 
 class Config:
 
     def __init__(self, cfg_id, base_dir=None, exp_name = None, tmp=False, create_dirs=False, ngc=False):
+        self.ngc = ngc
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
@@ -57,8 +60,8 @@ class Config:
             recreate_dirs(self.tb_dir)
 
     def update_dlow_dirs(self, exp_name, create_dirs=False):
-        self.cfg_dir = '%s/%s' % (self.cfg_dir, exp_name)
-        self.model_dir = '%s/models/epoch_%04d' % (self.cfg_dir, self.pred_epoch)
+        self.cfg_dir = '%s/%s/epoch_%04d' % (self.cfg_dir, exp_name, self.pred_epoch)
+        self.model_dir = '%s/models' % (self.cfg_dir)
         self.result_dir = '%s/results' % self.cfg_dir
         self.log_dir = '%s/log' % self.cfg_dir
         self.tb_dir = '%s/tb' % self.cfg_dir

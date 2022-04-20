@@ -174,7 +174,7 @@ def train(epoch, args):
                         total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
                         if args.qz_reg:
                             qz_loss = model.compute_qz_loss()
-                            total_loss += qz_loss
+                            total_loss += args.qz_reg_beta * qz_loss
                             loss_unweighted_dict['qz'] = qz_loss.item()
                 if args.debug:
                     print(f'adv time: {adv_timer.toc()}')

@@ -280,16 +280,17 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
                 # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
                 # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
                 # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-                model.adv_inference(qz=qz)
+                model.adv_inference(qz=qz, sample_num=model.cfg.sample_k)
                 total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
         else:
             # recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
             # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
             # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
             # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-            model.adv_inference(qz=qz)
+            model.adv_inference(qz=qz, sample_num=model.cfg.sample_k)
             total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
         adv_loss = -total_loss
+
         optimizer.zero_grad()
 
         if scaler:
