@@ -17,7 +17,7 @@ import pickle
 from pdb import set_trace as st
 import matplotlib.pyplot as plt
 
-import dill
+# import dill
 import wandb
 
 """ Metrics """
@@ -227,7 +227,7 @@ def evaluate(results_dir, dataset='nuscenes_pred', data='test', exclude_adv=Fals
             # print(f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d} {stats_str}')
     if dump:
         data_file_path = os.path.join(results_dir,f"scene_metrics.dill")
-        dill.dump(metric_map, open(data_file_path, mode='wb'))
+        # dill.dump(metric_map, open(data_file_path, mode='wb'))
 
     return stats_meter
 
