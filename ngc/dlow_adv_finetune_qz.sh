@@ -13,7 +13,7 @@ do
             WS_ID=yulong-avg # replace with your workspace ID
 
 
-            NAME="DLOW-finetune-$BASENAME"
+            NAME="DLOW-finetune-qz-$BASENAME"
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
                 pip install -r requirements.txt;\
