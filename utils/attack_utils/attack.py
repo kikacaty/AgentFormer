@@ -297,7 +297,8 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
             scaler.scale(adv_loss).backward()
             scaler.unscale_(optimizer)
             grad_norms = delta.grad.norm(p=2)
-            delta.grad.div_(grad_norms)
+            # delta.grad.div_(grad_norms)
+            delta.grad.sign_()
             # avoid nan or inf if gradient is 0
             if (grad_norms == 0).any():
                 delta.grad = torch.randn_like(delta.grad)
@@ -306,7 +307,8 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
         else:
             adv_loss.backward()
             grad_norms = delta.grad.norm(p=2)
-            delta.grad.div_(grad_norms)
+            # delta.grad.div_(grad_norms)
+            delta.grad.sign_()
             # avoid nan or inf if gradient is 0
             if (grad_norms == 0).any():
                 delta.grad = torch.randn_like(delta.grad)
