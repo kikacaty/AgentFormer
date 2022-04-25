@@ -266,7 +266,7 @@ if __name__ == '__main__':
     if args.wandb:
         wandb.init(project="robust_pred", entity="yulongc")
 
-        exp_name_wandb = f'DLOW_{args.log_file}'
+        exp_name_wandb = f'DLOW/{args.log_file}'
         wandb.run.name = exp_name_wandb
         wandb.run.save()
 
