@@ -87,7 +87,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg, tmp=args.tmp, create_dirs=True, ngc=args.ngc)
+    cfg = Config(args.cfg, tmp=args.tmp, create_dirs=False, ngc=args.ngc)
     cfg.ngc = args.ngc
     cfg.exp_name = args.exp_name
     args.exp_name = f'{args.exp_name}/epoch_{args.pred_epoch:04d}'
