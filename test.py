@@ -266,6 +266,7 @@ if __name__ == '__main__':
     parser.add_argument('--noise', action='store_true', default=False)
 
     parser.add_argument('--adv', action='store_true', default=False)
+    parser.add_argument('--adv_DLOW', action='store_true', default=False)
     parser.add_argument('--qz', action='store_true', default=False)
     parser.add_argument('--eps', type=float, default=0.1)
     parser.add_argument('--pgd_step', type=int, default=20)
@@ -287,7 +288,7 @@ if __name__ == '__main__':
         if 'pre' in args.cfg:
             cfg.update_dirs(args.exp_name)
         else:
-            cfg.update_dlow_dirs(args.exp_name)
+            cfg.update_dlow_dirs(args.exp_name,adv=args.adv_DLOW)
     if args.epochs is None:
         epochs = [cfg.get_last_epoch()]
     else:

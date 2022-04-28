@@ -114,8 +114,6 @@ def train(epoch, args):
     train_loss_meter['total_loss'] = AverageMeter()
     if args.qz_reg:
         train_loss_meter['qz'] = AverageMeter()
-    if args.context_reg:
-        train_loss_meter['context'] = AverageMeter()
     last_generator_index = 0
     # attacker = Attacker(model, adv_cfg)
 
@@ -132,7 +130,12 @@ def train(epoch, args):
         if data is not None:
             seq, frame = data['seq'], data['frame']
 
+            if args.aug == 'noise':
+                data['pre_motion_3D'] = [pre_mot + torch.randn_like(pre_mot).clamp(-1,1)/data['traj_scale']*args.eps for pre_mot in data['pre_motion_3D']]
+
+
             if args.benign:
+
                 model.train()
                 model.set_data(data)
                 model_data = model()
@@ -156,18 +159,23 @@ def train(epoch, args):
                     total_loss += args.beta * loss_trade
                 else:
                     model.eval()
-                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, qz=args.qz, context=args.context)
+                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, scaler=(scaler if args.amp else None), qz=args.qz)
                     model.train()
-                    model_data = model()
-                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
-                    if args.qz_reg:
-                        qz_loss = model.compute_qz_loss()
-                        total_loss += args.qz_reg_beta * qz_loss
-                        loss_unweighted_dict['qz'] = qz_loss.item()
-                    if args.context_reg:
-                        ctx_loss = model.compute_ctx_loss()
-                        total_loss += args.context_reg_beta * ctx_loss
-                        loss_unweighted_dict['context'] = ctx_loss.item()
+                    if args.amp:
+                        with torch.cuda.amp.autocast():
+                            model_data = model()
+                            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                            if args.qz_reg:
+                                qz_loss = model.compute_qz_loss()
+                                total_loss += args.qz_reg_beta * qz_loss
+                                loss_unweighted_dict['qz'] = qz_loss.item()
+                    else:
+                        model_data = model()
+                        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                        if args.qz_reg:
+                            qz_loss = model.compute_qz_loss()
+                            total_loss += args.qz_reg_beta * qz_loss
+                            loss_unweighted_dict['qz'] = qz_loss.item()
                 if args.debug:
                     print(f'adv time: {adv_timer.toc()}')
 
@@ -202,42 +210,30 @@ def train(epoch, args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', default='k10_res')
-    parser.add_argument('--adv_cfg', default=None)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--mix', type=float, default=0)
     parser.add_argument('--ngc', action='store_true', default=False)
 
-    parser.add_argument('--free', action='store_true', default=False)
-    parser.add_argument('--full', action='store_true', default=False)
     parser.add_argument('--debug', action='store_true', default=False)
     parser.add_argument('--dense', action='store_true', default=False)
-
-    # adv train params
-    parser.add_argument('--beta', type=float, default=5)
-    parser.add_argument('--eps', type=float, default=0.1)
-    parser.add_argument('--pgd_step', type=int, default=1)
-    parser.add_argument('--test_pgd_step', type=int, default=10)
-
-    # parser.add_argument('--finetune', action='store_true', default=False)
-    parser.add_argument('--trade', action='store_true', default=False)
+    parser.add_argument('--benign', action='store_true', default=False)
     parser.add_argument('--pretrained', default=None)
+
+
+    # aug train params
+    parser.add_argument('--aug', default='noise')
+
+    parser.add_argument('--eps', type=float, default=0.1)
     parser.add_argument('--finetune_lr', type=float, default=0.1)
     parser.add_argument('--finetune_fast', action='store_true', default=False)
 
-    parser.add_argument('--benign', action='store_true', default=False)
-    parser.add_argument('--amp', action='store_true', default=False)
-    parser.add_argument('--fixed', action='store_true', default=False)
+    # adv
     parser.add_argument('--qz', action='store_true', default=False)
-
-    parser.add_argument('--context', action='store_true', default=False)
-
     parser.add_argument('--qz_reg', action='store_true', default=False)
+
     parser.add_argument('--qz_reg_beta', type=float, default=1)
 
-    parser.add_argument('--context_reg', action='store_true', default=False)
-    parser.add_argument('--context_reg_beta', type=float, default=1)
 
 
 
@@ -248,37 +244,17 @@ if __name__ == '__main__':
 
     """ setup """
     cfg = Config(args.cfg, tmp=args.tmp, create_dirs=True, ngc=args.ngc)
-    adv_cfg = AdvConfig(args.adv_cfg, tmp=args.tmp, create_dirs=True)
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if torch.cuda.is_available() else torch.device('cpu')
     if torch.cuda.is_available(): torch.cuda.set_device(args.gpu)
     
-    
-    adv_cfg.device = device
-    adv_cfg.traj_scale = cfg.traj_scale
-
-    if args.full:
-        adv_cfg.target_agent.all = True
-        adv_cfg.target_agent.other = False
-        adv_cfg.adv_agent.all = True
-    else:
-        adv_cfg.target_agent.all = True
-        adv_cfg.target_agent.other = True
-        adv_cfg.adv_agent.all = False
-
-    adv_cfg.iters = [args.pgd_step]
 
     args.finetune = (args.pretrained is not None)
 
-    adv_agent = 'full' if args.full else 'single'
-    exp_name = f'eps_{args.eps}_step_{args.pgd_step}_free_{args.free}_fixed_{args.fixed}_qz_{args.qz}_ctx_{args.context}_adv'
-    if args.trade:
-        exp_name = f'trade_{args.beta}/{exp_name}'
-    if args.qz_reg:
-        exp_name = f'qz_reg_{args.qz_reg_beta}/{exp_name}'
-    if args.context_reg:
-        exp_name = f'ctx_reg_{args.context_reg_beta}/{exp_name}'
+    exp_name = f'aug_{args.aug}'
+    if args.aug == 'noise':
+        exp_name = f'{exp_name}/eps_{args.eps}'
     if args.finetune:
         cfg.lr *= args.finetune_lr
         if args.finetune_fast:
@@ -295,11 +271,7 @@ if __name__ == '__main__':
         # set up wandb
         wandb.init(project="robust_pred", entity="yulongc")
         wandb.config = {
-            'pgd_step': args.pgd_step,
-            'mix': args.mix,
-            'free': args.free,
-            'adv mode': adv_cfg.mode,
-            'beta': args.beta,
+            'aug': args.aug,
             'eps': args.eps
         }
 
@@ -362,13 +334,9 @@ if __name__ == '__main__':
     model.set_device(device)
     model.train()
 
-    if not args.debug:
-        validate(0,args)
-
     for i in range(args.start_epoch, cfg.num_epochs):
         train(i,args)
 
-        validate(i+1,args)
         """ save model """
         if cfg.model_save_freq > 0 and (i + 1) % cfg.model_save_freq == 0:
             cp_path = cfg.model_path % (i + 1)

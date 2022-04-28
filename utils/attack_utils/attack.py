@@ -252,7 +252,7 @@ class Attacker(object):
         model.update_data(data, pre_motion = model.data['pre_motion'], heading = model.data['heading'])
 
 
-def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=False):
+def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=False, context=False):
     model.set_data(data)
     orig_pre_motion = model.data['pre_motion'].detach()
     pre_motion_mask = model.data['pre_mask']
@@ -261,6 +261,7 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
 
     data_out = model()
     model.orig_q_z_dist = orig_qz = data_out['q_z_dist'].copy()
+    model.orig_context = orig_context = data_out['context_enc'].detach().clone()
 
     device = orig_pre_motion.device
     delta = 1e-3 * eps * torch.randn(orig_pre_motion.shape).to(device).detach()
@@ -274,45 +275,24 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
     for i in range(iters):
         pre_motion = delta * pre_motion_mask + orig_pre_motion
         model.update_data(data, pre_motion, orig_heading)
-        if scaler:
-            with torch.cuda.amp.autocast():
-                # recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
-                # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-                # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
-                # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-                model.adv_inference(qz=qz, sample_num=model.cfg.sample_k)
-                total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
-        else:
-            # recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
-            # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-            # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
-            # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-            model.adv_inference(qz=qz, sample_num=model.cfg.sample_k)
-            total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None))
+        # recon_motion_3D, _ = model.adv_inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+        # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+        # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
+        # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
+        model.adv_inference(qz=qz, context=context, sample_num=model.cfg.sample_k)
+        total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None), context=(orig_context if context else None))
         adv_loss = -total_loss
 
         optimizer.zero_grad()
 
-        if scaler:
-            scaler.scale(adv_loss).backward()
-            scaler.unscale_(optimizer)
-            grad_norms = delta.grad.norm(p=2)
-            # delta.grad.div_(grad_norms)
-            delta.grad.sign_()
-            # avoid nan or inf if gradient is 0
-            if (grad_norms == 0).any():
-                delta.grad = torch.randn_like(delta.grad)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            adv_loss.backward()
-            grad_norms = delta.grad.norm(p=2)
-            # delta.grad.div_(grad_norms)
-            delta.grad.sign_()
-            # avoid nan or inf if gradient is 0
-            if (grad_norms == 0).any():
-                delta.grad = torch.randn_like(delta.grad)
-            optimizer.step()
+        adv_loss.backward()
+        grad_norms = delta.grad.norm(p=2)
+        # delta.grad.div_(grad_norms)
+        delta.grad.sign_()
+        # avoid nan or inf if gradient is 0
+        if (grad_norms == 0).any():
+            delta.grad = torch.randn_like(delta.grad)
+        optimizer.step()
 
 
         if adv_loss < best_result[0]:

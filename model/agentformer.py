@@ -751,7 +751,7 @@ class AgentFormer(nn.Module):
             self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
         return self.data
 
-    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False):
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False, context=False):
         if self.use_map and self.data['map_enc'] is None:
             self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
         if self.data['context_enc'] is None:
@@ -765,7 +765,7 @@ class AgentFormer(nn.Module):
                 self.data['p_z_dist'] = Normal(params=p_z_params)
             else:
                 self.data['p_z_dist'] = Categorical(params=p_z_params)
-        else:
+        elif not context:
             self.future_decoder(self.data, mode='recon', sample_num=sample_num, autoregress=True, need_weights=need_weights)
             self.future_decoder(self.data, mode='infer', sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=True)
 
@@ -789,15 +789,32 @@ class AgentFormer(nn.Module):
             loss_unweighted /= self.data['batch_size']
         return loss_unweighted
 
-    def compute_adv_loss(self, qz=None):
+    def compute_ctx_loss(self):
+        context = self.orig_context
+        diff = self.data['context_enc'] - context
+        loss_unweighted = diff.pow(2).sum()
+        if self.cfg.get('normalize', True):
+            loss_unweighted /= diff.shape[0]
+        return loss_unweighted
+
+    def compute_adv_loss(self, qz=None, context=None):
         total_loss = 0
         loss_dict = {}
         loss_unweighted_dict = {}
-        if qz:
+        if qz is not None:
             loss_name = 'qz_kl'
             loss_unweighted = self.data['q_z_dist'].kl(qz).sum()
             if self.cfg.get('normalize', True):
                 loss_unweighted /= self.data['batch_size']
+            total_loss += loss_unweighted
+            loss_dict[loss_name] = loss_unweighted.item()
+            loss_unweighted_dict[loss_name] = loss_unweighted.item()
+        elif context is not None:
+            loss_name = 'context_mse'
+            diff = self.data['context_enc'] - context
+            loss_unweighted = diff.pow(2).sum()
+            if self.cfg.get('normalize', True):
+                loss_unweighted /= diff.shape[0]
             total_loss += loss_unweighted
             loss_dict[loss_name] = loss_unweighted.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()

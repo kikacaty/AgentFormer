@@ -59,7 +59,9 @@ class Config:
         if create_dirs:
             recreate_dirs(self.tb_dir)
 
-    def update_dlow_dirs(self, exp_name, create_dirs=False):
+    def update_dlow_dirs(self, exp_name, create_dirs=False, adv=False):
+        if adv:
+            exp_name = f'{exp_name}/adv'
         self.cfg_dir = '%s/%s/epoch_%04d' % (self.cfg_dir, exp_name, self.pred_epoch)
         self.model_dir = '%s/models' % (self.cfg_dir)
         self.result_dir = '%s/results' % self.cfg_dir
