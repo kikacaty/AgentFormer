@@ -156,7 +156,7 @@ def train(epoch, args):
                     total_loss += args.beta * loss_trade
                 else:
                     model.eval()
-                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, qz=args.qz, context=args.context)
+                    adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, qz=args.qz, context=args.context, naive=args.naive)
                     model.train()
                     model_data = model()
                     total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
@@ -239,6 +239,7 @@ if __name__ == '__main__':
     parser.add_argument('--context_reg', action='store_true', default=False)
     parser.add_argument('--context_reg_beta', type=float, default=1)
 
+    parser.add_argument('--naive', action='store_true', default=False)
 
 
 
@@ -279,6 +280,9 @@ if __name__ == '__main__':
         exp_name = f'qz_reg_{args.qz_reg_beta}/{exp_name}'
     if args.context_reg:
         exp_name = f'ctx_reg_{args.context_reg_beta}/{exp_name}'
+
+    if args.naive:
+        exp_name = f'eps_{args.eps}_step_{args.pgd_step}_naive_adv'
     if args.finetune:
         cfg.lr *= args.finetune_lr
         if args.finetune_fast:
@@ -286,6 +290,7 @@ if __name__ == '__main__':
             exp_name = f'fast_finetune_{args.finetune_lr}/{exp_name}'
         else:
             exp_name = f'finetune_{args.finetune_lr}/{exp_name}'
+
     if not args.ngc:
         exp_name = f'fast/{exp_name}'
 

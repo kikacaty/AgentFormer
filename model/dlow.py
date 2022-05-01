@@ -140,7 +140,7 @@ class DLow(nn.Module):
             res = res[:, 0]
         return res, self.data
 
-    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False):
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False, context=False, naive=False):
         self.main(mean=True, need_weights=need_weights)
         res = self.data[f'infer_dec_motion']
         if mode == 'recon':
@@ -158,7 +158,7 @@ class DLow(nn.Module):
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
         return total_loss, loss_dict, loss_unweighted_dict
 
-    def compute_adv_loss(self, qz=None):
+    def compute_adv_loss(self, qz=None, context=None, naive=False):
         total_loss = 0
         loss_dict = {}
         loss_unweighted_dict = {}

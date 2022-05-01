@@ -751,7 +751,7 @@ class AgentFormer(nn.Module):
             self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
         return self.data
 
-    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False, context=False):
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False, context=False, naive=False):
         if self.use_map and self.data['map_enc'] is None:
             self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
         if self.data['context_enc'] is None:
@@ -766,7 +766,10 @@ class AgentFormer(nn.Module):
             else:
                 self.data['p_z_dist'] = Categorical(params=p_z_params)
         elif not context:
-            self.future_decoder(self.data, mode='recon', sample_num=sample_num, autoregress=True, need_weights=need_weights)
+            if naive:
+                self.future_decoder(self.data, mode='train', sample_num=sample_num, autoregress=True, need_weights=need_weights)
+            else:
+                self.future_decoder(self.data, mode='recon', sample_num=sample_num, autoregress=True, need_weights=need_weights)
             self.future_decoder(self.data, mode='infer', sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=True)
 
         return self.data[f'{mode}_dec_motion'], self.data
@@ -797,7 +800,7 @@ class AgentFormer(nn.Module):
             loss_unweighted /= diff.shape[0]
         return loss_unweighted
 
-    def compute_adv_loss(self, qz=None, context=None):
+    def compute_adv_loss(self, qz=None, context=None, naive=False):
         total_loss = 0
         loss_dict = {}
         loss_unweighted_dict = {}
@@ -818,11 +821,18 @@ class AgentFormer(nn.Module):
             total_loss += loss_unweighted
             loss_dict[loss_name] = loss_unweighted.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
+        elif naive:
+            for loss_name in self.loss_names:
+                loss, loss_unweighted = loss_func[loss_name](self.data, self.loss_cfg[loss_name])
+                total_loss += loss
+                loss_dict[loss_name] = loss.item()
+                loss_unweighted_dict[loss_name] = loss_unweighted.item()
         else:
             loss_name = 'sample'
             loss, loss_unweighted = loss_func[loss_name](self.data, self.loss_cfg[loss_name])
             total_loss += loss
             loss_dict[loss_name] = loss.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
+
 
         return total_loss, loss_dict, loss_unweighted_dict
