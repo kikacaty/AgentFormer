@@ -1,7 +1,7 @@
 #!/bin/bash
 for EPS in 0.05 0.1 0.2 0.3 0.5 1.0
 do
-    for EPOCH in 10 20
+    for EPOCH in 10 20 30 40 50
     do
         INS="dgx1v.16g.1.norm"
 
