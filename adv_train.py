@@ -291,6 +291,9 @@ if __name__ == '__main__':
         else:
             exp_name = f'finetune_{args.finetune_lr}/{exp_name}'
 
+    # linf attack
+    exp_name = f'linf/{exp_name}'
+
     if not args.ngc:
         exp_name = f'fast/{exp_name}'
 
