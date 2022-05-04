@@ -26,7 +26,6 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
 torch.set_printoptions(sci_mode=False, precision=3)
-scaler = torch.cuda.amp.GradScaler()
 
 
 from pdb import set_trace as st
@@ -145,16 +144,17 @@ def train(epoch, args):
 
                     model.train()
                     model.set_data(data)
-                    if args.amp:
-                        with torch.cuda.amp.autocast():
-                            model_data = model()
-                            total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
-                    else:
-                        model_data = model()
-                        total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+                    model_data = model()
+                    total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
 
                     total_loss += args.beta * loss_trade
                 else:
+                    if args.all:
+                        model.train()
+                        model.set_data(data)
+                        model_data = model()
+                        benign_total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+
                     model.eval()
                     adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, qz=args.qz, context=args.context, naive=args.naive)
                     model.train()
@@ -168,6 +168,9 @@ def train(epoch, args):
                         ctx_loss = model.compute_ctx_loss()
                         total_loss += args.context_reg_beta * ctx_loss
                         loss_unweighted_dict['context'] = ctx_loss.item()
+                    if args.all:
+                        total_loss += benign_total_loss
+                    
                 if args.debug:
                     print(f'adv time: {adv_timer.toc()}')
 
@@ -206,7 +209,6 @@ if __name__ == '__main__':
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--mix', type=float, default=0)
     parser.add_argument('--ngc', action='store_true', default=False)
 
     parser.add_argument('--free', action='store_true', default=False)
@@ -227,7 +229,6 @@ if __name__ == '__main__':
     parser.add_argument('--finetune_fast', action='store_true', default=False)
 
     parser.add_argument('--benign', action='store_true', default=False)
-    parser.add_argument('--amp', action='store_true', default=False)
     parser.add_argument('--fixed', action='store_true', default=False)
     parser.add_argument('--qz', action='store_true', default=False)
 
@@ -240,6 +241,8 @@ if __name__ == '__main__':
     parser.add_argument('--context_reg_beta', type=float, default=1)
 
     parser.add_argument('--naive', action='store_true', default=False)
+
+    parser.add_argument('--all', action='store_true', default=False)
 
 
 
@@ -290,6 +293,9 @@ if __name__ == '__main__':
             exp_name = f'fast_finetune_{args.finetune_lr}/{exp_name}'
         else:
             exp_name = f'finetune_{args.finetune_lr}/{exp_name}'
+
+    if args.all:
+        exp_name = f'all/{exp_name}'
 
     # linf attack
     exp_name = f'linf/{exp_name}'

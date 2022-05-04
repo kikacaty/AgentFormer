@@ -2,8 +2,9 @@
 
 for STEP in 2
 do
-    for LR in 0.01 0.1 0.5 1.0 2.0 10.0
+    for BETA in 0.01 0.1 0.5 1.0 2.0 10.0
     do
+        EPS=0.5
         INS="dgx1v.16g.1.norm"
 
         BASENAME="eval_${STEP}_${LR} ml.model.adv_agentformer"
