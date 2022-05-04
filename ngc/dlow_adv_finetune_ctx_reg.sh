@@ -4,7 +4,7 @@ for STEP in 2
 do
     for EPS in 0.5
     do
-        for BETA in 0.01 0.1 0.5 1 2 10
+        for BETA in 0.01 0.1 0.5 1.0 2.0 10.0
         do
             for EPOCH in 10 20 30 40 50
             do
