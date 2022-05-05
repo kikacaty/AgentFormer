@@ -251,8 +251,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg, tmp=args.tmp, create_dirs=True, ngc=args.ngc)
-    adv_cfg = AdvConfig(args.adv_cfg, tmp=args.tmp, create_dirs=True)
+    cfg = Config(args.cfg, tmp=args.tmp, ngc=args.ngc)
+    adv_cfg = AdvConfig(args.adv_cfg, tmp=args.tmp)
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if torch.cuda.is_available() else torch.device('cpu')
