@@ -310,8 +310,6 @@ if __name__ == '__main__':
         wandb.init(project="robust_pred", entity="yulongc")
         wandb.config = {
             'pgd_step': args.pgd_step,
-            'mix': args.mix,
-            'free': args.free,
             'adv mode': adv_cfg.mode,
             'beta': args.beta,
             'eps': args.eps
