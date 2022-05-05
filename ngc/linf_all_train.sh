@@ -167,7 +167,7 @@ do
             export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; "
         CMD="${CMD} \ 
             python adv_train.py --cfg adv_mini_nusc_5sample_pre --adv_cfg at_noise \
-            --pgd_step $STEP --eps $EPS --test_pgd_step 20 --ngc --finetune_lr 0.1 --all\
+            --pgd_step $STEP --eps $EPS --test_pgd_step 20 --ngc --finetune_lr 0.1 --all --context\
             --pretrained /workspace/results/adv_mini_nusc_5sample_pre/models/model_0100.p "
 
         echo "$CMD"

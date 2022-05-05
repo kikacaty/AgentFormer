@@ -80,7 +80,7 @@ def validate(epoch, args):
             for key in loss_unweighted_dict.keys():
                 train_loss_meter[key].update(loss_unweighted_dict[key])
 
-            simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step,qz=args.qz)
+            simple_noise_attack(model,data,eps=args.eps/10, iters=args.test_pgd_step)
             if args.fixed:
                 model.adv_forward()
             else:
