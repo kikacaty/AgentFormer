@@ -281,6 +281,7 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
         # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
         model.adv_inference(qz=qz, context=context, sample_num=model.cfg.sample_k, naive=naive)
         total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None), context=(orig_context if context else None), naive=naive)
+        
         adv_loss = -total_loss
 
         optimizer.zero_grad()

@@ -49,7 +49,7 @@ def train(epoch):
             seq, frame = data['seq'], data['frame']
 
             model.eval()
-            adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step)
+            adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, naive=args.naive)
             model.train()
 
             # model.set_data(data)
@@ -92,6 +92,9 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', default='None')
     parser.add_argument('--pred_epoch', type=int, default=100)
     parser.add_argument('--ngc', action='store_true', default=False)
+
+    parser.add_argument('--naive', action='store_true', default=False)
+
 
 
 
