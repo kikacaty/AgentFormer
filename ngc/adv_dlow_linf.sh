@@ -13,7 +13,7 @@ do
 
             WS_ID=yulong-avg # replace with your workspace ID
 
-            NAME="$BASENAME.dlow.finetune.qz"
+            NAME="$BASENAME.adv_dlow.finetune.qz"
 
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
@@ -39,12 +39,10 @@ do
             #finetune
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
-
             WS_ID=yulong-avg # replace with your workspace ID
 
 
-            NAME="$BASENAME.dlow.finetune"
+            NAME="$BASENAME.adv_dlow.finetune"
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
                 pip install -r requirements.txt;\
@@ -69,12 +67,11 @@ do
             # ctx finetune
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
 
-            NAME="$BASENAME.dlow.finetune"
+            NAME="$BASENAME.adv_dlow.finetune"
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
                 pip install -r requirements.txt;\
@@ -99,11 +96,10 @@ do
             # qz
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
-            NAME="$BASENAME.dlow.qz"
+            NAME="$BASENAME.adv_dlow.qz"
 
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
@@ -129,12 +125,11 @@ do
             # adv train
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
 
-            NAME="$BASENAME.dlow"
+            NAME="$BASENAME.adv_dlow"
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
                 pip install -r requirements.txt;\
@@ -159,12 +154,11 @@ do
             # ctx
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
 
-            NAME="$BASENAME.dlow"
+            NAME="$BASENAME.adv_dlow"
             CMD="cd /workspace/adv_pred/; git pull; \
                 apt-get update && apt-get install libgl1 -y; \
                 pip install -r requirements.txt;\

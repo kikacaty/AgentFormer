@@ -9,7 +9,7 @@ do
             #finetune qz
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
+            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer.all"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
@@ -39,8 +39,6 @@ do
             #finetune
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
-
             WS_ID=yulong-avg # replace with your workspace ID
 
 
@@ -69,7 +67,6 @@ do
             # ctx finetune
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
@@ -99,7 +96,6 @@ do
             # qz
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
@@ -129,7 +125,6 @@ do
             # adv train
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
@@ -159,7 +154,6 @@ do
             # ctx
             INS="dgx1v.16g.1.norm"
 
-            BASENAME="step_${STEP}_${EPS}_${EPOCH} ml.model.adv_agentformer"
 
             WS_ID=yulong-avg # replace with your workspace ID
 
