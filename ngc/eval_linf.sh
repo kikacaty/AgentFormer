@@ -1,5 +1,5 @@
 #!/bin/bash
-
+EPS=0.2
 for STEP in 2
 do
     for EPOCH in 40 50
