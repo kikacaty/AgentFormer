@@ -2,7 +2,7 @@
 
 for STEP in 2
 do
-    for EPS in 0.5
+    for EPS in 1.0 0.1
     do
         # qz train
         INS="dgx1v.16g.1.norm"
