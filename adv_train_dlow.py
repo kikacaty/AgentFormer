@@ -48,6 +48,12 @@ def train(epoch):
         if data is not None:
             seq, frame = data['seq'], data['frame']
 
+            if args.all:
+                model.train()
+                model.set_data(data)
+                model_data = model()
+                benign_total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+
             model.eval()
             adv_data_out = simple_noise_attack(model, data, eps=args.eps/10, iters=args.pgd_step, naive=args.naive)
             model.train()
@@ -55,6 +61,9 @@ def train(epoch):
             # model.set_data(data)
             model_data = model()
             total_loss, loss_dict, loss_unweighted_dict = model.compute_loss()
+            if args.all:
+                total_loss += benign_total_loss
+
             """ optimize """
             optimizer.zero_grad()
             total_loss.backward()
@@ -94,6 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--ngc', action='store_true', default=False)
 
     parser.add_argument('--naive', action='store_true', default=False)
+    parser.add_argument('--all', action='store_true', default=False)
 
 
 
@@ -106,6 +116,8 @@ if __name__ == '__main__':
     cfg.ngc = args.ngc
     cfg.exp_name = args.exp_name
     args.exp_name = f'{args.exp_name}/adv/epoch_{args.pred_epoch:04d}'
+    if args.all:
+        args.exp_name = f'{args.exp_name}/adv/all/epoch_{args.pred_epoch:04d}'
     eps, step = re.findall("eps_(\d+\.\d+)_step_(\d+)", args.exp_name)[0]
     args.eps, args.pgd_step = float(eps), int(step)
 
@@ -130,6 +142,8 @@ if __name__ == '__main__':
     wandb.init(project="robust_pred", entity="yulongc")
 
     exp_name_wandb = f'adv_DLOW_{args.exp_name}'
+    if args.all:
+        exp_name_wandb = f'adv_DLOW_ALL_{args.exp_name}'
     wandb.run.name = exp_name_wandb
     wandb.run.save()
 

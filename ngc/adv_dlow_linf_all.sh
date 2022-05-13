@@ -23,7 +23,7 @@ do
             CMD="${CMD} \ 
                 python adv_train_dlow.py --cfg adv_mini_nusc_5sample \
                 --exp_name linf/all/finetune_0.1/eps_${EPS}_step_${STEP}_free_False_fixed_False_qz_True_ctx_False_adv \
-                --pred_epoch $EPOCH --ngc"
+                --pred_epoch $EPOCH --ngc --all"
 
             echo "$CMD"
 
@@ -52,7 +52,7 @@ do
             CMD="${CMD} \ 
                 python adv_train_dlow.py --cfg adv_mini_nusc_5sample \
                 --exp_name linf/all/finetune_0.1/eps_${EPS}_step_${STEP}_free_False_fixed_False_qz_False_ctx_False_adv \
-                --pred_epoch $EPOCH --ngc"
+                --pred_epoch $EPOCH --ngc --all"
 
             echo "$CMD"
 
@@ -81,7 +81,7 @@ do
             CMD="${CMD} \ 
                 python adv_train_dlow.py --cfg adv_mini_nusc_5sample \
                 --exp_name linf/all/finetune_0.1/eps_${EPS}_step_${STEP}_free_False_fixed_False_qz_False_ctx_True_adv \
-                --pred_epoch $EPOCH --ngc"
+                --pred_epoch $EPOCH --ngc --all"
 
             echo "$CMD"
 
@@ -110,7 +110,7 @@ do
             CMD="${CMD} \ 
                 python adv_train_dlow.py --cfg adv_mini_nusc_5sample \
                 --exp_name linf/all/eps_${EPS}_step_${STEP}_free_False_fixed_False_qz_True_ctx_False_adv \
-                --pred_epoch $EPOCH --ngc"
+                --pred_epoch $EPOCH --ngc --all"
 
             echo "$CMD"
 
@@ -139,7 +139,7 @@ do
             CMD="${CMD} \ 
                 python adv_train_dlow.py --cfg adv_mini_nusc_5sample \
                 --exp_name linf/all/eps_${EPS}_step_${STEP}_free_False_fixed_False_qz_False_ctx_False_adv \
-                --pred_epoch $EPOCH --ngc"
+                --pred_epoch $EPOCH --ngc --all"
 
             echo "$CMD"
 
@@ -168,7 +168,7 @@ do
             CMD="${CMD} \ 
                 python adv_train_dlow.py --cfg adv_mini_nusc_5sample \
                 --exp_name linf/all/eps_${EPS}_step_${STEP}_free_False_fixed_False_qz_False_ctx_True_adv \
-                --pred_epoch $EPOCH --ngc"
+                --pred_epoch $EPOCH --ngc --all"
 
             echo "$CMD"
 
