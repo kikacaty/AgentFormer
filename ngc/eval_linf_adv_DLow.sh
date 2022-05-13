@@ -6,7 +6,7 @@ do
     do
         INS="dgx1v.16g.1.norm"
 
-        BASENAME="eval_${STEP}_${EPOCH} ml.model.adv_agentformer"
+        BASENAME="eval_${STEP}_${EPOCH} ml.model.adv_agentformer.adv_DLOW"
 
         WS_ID=yulong-avg # replace with your workspace ID
 
