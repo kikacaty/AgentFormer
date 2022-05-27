@@ -169,7 +169,7 @@ def train(epoch, args):
                         total_loss += args.context_reg_beta * ctx_loss
                         loss_unweighted_dict['context'] = ctx_loss.item()
                     if args.all:
-                        total_loss += benign_total_loss
+                        total_loss += args.beta*benign_total_loss
                     
                 if args.debug:
                     print(f'adv time: {adv_timer.toc()}')
@@ -217,10 +217,10 @@ if __name__ == '__main__':
     parser.add_argument('--dense', action='store_true', default=False)
 
     # adv train params
-    parser.add_argument('--beta', type=float, default=5)
+    parser.add_argument('--beta', type=float, default=1)
     parser.add_argument('--eps', type=float, default=0.1)
-    parser.add_argument('--pgd_step', type=int, default=1)
-    parser.add_argument('--test_pgd_step', type=int, default=10)
+    parser.add_argument('--pgd_step', type=int, default=2)
+    parser.add_argument('--test_pgd_step', type=int, default=20)
 
     # parser.add_argument('--finetune', action='store_true', default=False)
     parser.add_argument('--trade', action='store_true', default=False)
@@ -295,7 +295,7 @@ if __name__ == '__main__':
             exp_name = f'finetune_{args.finetune_lr}/{exp_name}'
 
     if args.all:
-        exp_name = f'all/{exp_name}'
+        exp_name = f'all_{args.beta}/{exp_name}'
 
     # linf attack
     exp_name = f'linf/{exp_name}'
