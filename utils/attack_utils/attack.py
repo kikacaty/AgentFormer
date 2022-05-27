@@ -252,7 +252,7 @@ class Attacker(object):
         model.update_data(data, pre_motion = model.data['pre_motion'], heading = model.data['heading'])
 
 
-def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=False, context=False, naive=False):
+def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=False, context=False, naive=False, fixed=True):
     model.set_data(data)
     orig_pre_motion = model.data['pre_motion'].detach()
     pre_motion_mask = model.data['pre_mask']
@@ -279,7 +279,7 @@ def simple_noise_attack(model, data, eps = 0.1/10, iters = 5, scaler=None, qz=Fa
         # sample_motion_3D, _ = model.adv_inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
         # recon_motion_3D, _ = model.inference(mode='recon', sample_num=model.loss_cfg['sample']['k'])
         # sample_motion_3D, _ = model.inference(mode='infer', sample_num=model.loss_cfg['sample']['k'], need_weights=False)
-        model.adv_inference(qz=qz, context=context, sample_num=model.cfg.sample_k, naive=naive)
+        model.adv_inference(qz=qz, context=context, sample_num=model.cfg.sample_k, naive=naive, fixed=fixed)
         total_loss, loss_dict, loss_unweighted_dict = model.compute_adv_loss(qz=(orig_qz if qz else None), context=(orig_context if context else None), naive=naive)
         
         adv_loss = -total_loss

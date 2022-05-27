@@ -1,8 +1,9 @@
 #!/bin/bash
-
+STEP=2
+EPS=1.0
 for STEP in 1 2 3 4 5
 do
-    for EPS in 0.1 0.2 0.5 1.0
+    for BETA in 0.01 0.05 0.1 0.2 0.3 0.5 1.0
     do
         INS="dgx1v.16g.1.norm"
 
@@ -19,7 +20,7 @@ do
             export WANDB_APIKEY=66e53af18f876c79bad2f274a73b1c8026ced2ef; "
         CMD="${CMD} \ 
             python adv_train.py --cfg adv_mini_nusc_5sample_pre --adv_cfg at_noise \
-            --pgd_step $STEP --eps $EPS --test_pgd_step 10 --ngc --trade --beta 6"
+            --pgd_step $STEP --eps $EPS --test_pgd_step 10 --ngc --trade --beta $BETA"
 
         echo "$CMD"
 

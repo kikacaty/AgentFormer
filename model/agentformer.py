@@ -751,7 +751,7 @@ class AgentFormer(nn.Module):
             self.future_decoder(self.data, mode='infer', sample_num=self.loss_cfg['sample']['k'], autoregress=True, fixedsample=True)
         return self.data
 
-    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False, context=False, naive=False):
+    def adv_inference(self, mode='infer', sample_num=20, need_weights=False, qz=False, context=False, naive=False, fixed=True):
         if self.use_map and self.data['map_enc'] is None:
             self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
         if self.data['context_enc'] is None:
@@ -770,7 +770,7 @@ class AgentFormer(nn.Module):
                 self.future_decoder(self.data, mode='train', sample_num=sample_num, autoregress=True, need_weights=need_weights)
             else:
                 self.future_decoder(self.data, mode='recon', sample_num=sample_num, autoregress=True, need_weights=need_weights)
-            self.future_decoder(self.data, mode='infer', sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=True)
+            self.future_decoder(self.data, mode='infer', sample_num=sample_num, autoregress=True, need_weights=need_weights, fixedsample=fixed)
 
         return self.data[f'{mode}_dec_motion'], self.data
 
